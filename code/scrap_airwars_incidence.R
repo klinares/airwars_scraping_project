@@ -2,10 +2,10 @@
 # ____ Script for scraping Cassualty Incidents from airwars.org _____
 # ________________________________________________________________________
 
-pacman::p_load(rvest, lubridate, arrow, furrr, parallel, tidyverse, data.table)
+pacman::p_load(rvest, lubridate, arrow, furrr, writexl, parallel, tidyverse, data.table)
 
 # read in metadata need for creating queries
-airwars <- read.csv("~/UMD/classes/fund_comp_data_display_SURV727/project/airwars_meta.csv") |> 
+airwars <- read.csv("~/repos/airwars_scraping_project/data/airwars_meta.csv") |> 
   arrange(id) |> 
   group_by(id) |> 
   group_split()
@@ -23,10 +23,10 @@ airwars_events <- future_map(airwars, function(x){
     
     html = read_html(x[[4]])
     
-    # keep was is needed
+    # keep what is needed
     
     # parse out summary of event
-    Airways_assessment = html |> html_elements(".summary") |> html_text2() |> toString()
+    Airwars_assessment = html |> html_elements(".summary") |> html_text2() |> toString()
     
     # read in summary fields
     html_meta = html |> html_nodes(".meta-list") 
@@ -35,7 +35,7 @@ airwars_events <- future_map(airwars, function(x){
     summary_dat = 
       
       #meta data
-      tibble(Airways_assessment = Airways_assessment,
+      tibble(Airwars_assessment = str_remove_all(Airwars_assessment, "\n"),
              Incidence_date = x[[1]],
              Incidence_id = x[[2]],
              Incidence_url = x[[4]]) |> 
@@ -78,9 +78,11 @@ airwars_events <- future_map(airwars, function(x){
     return(summary_dat)
     
   }) |> 
-  bind_rows()
+  bind_rows() |> 
+  # move text column to last
+  relocate(Airwars_assessment, .after=last_col())
 
 # save out data
-write_parquet(airwars_events, "~/UMD/classes/fund_comp_data_display_SURV727/project/airwars_incidence.parquet")
-
+write_parquet(airwars_events, "~/repos/airwars_scraping_project/data/airwars_incidence.parquet")
+write_csv(airwars_events, "~/repos/airwars_scraping_project/data/airwars_incidence.csv")
 # _____________________________ END __________________________

@@ -1,15 +1,16 @@
 #_________________________________________________________________________
-# ____ Script for scraping Cassualty Incidents from airwars.org _____
+# ____ Script for scraping Casualty Incidents from airwars.org _____
 # ________________________________________________________________________
 
 pacman::p_load(rvest, glue, lubridate, furrr, parallel, tidyverse)
 
 
-### We will need a list of dates from the begining of the war.
+### We will need a list of dates from the beginning of the war.
 # The webpage only presents 30 events at a time.
 # The start of the war was on October 7 2023
-
 dates <- seq(ymd("2023-10-07"), as_date(today()), by="day") 
+
+print(str_c("Scrapped data as of ", Sys.Date()))
 
 
 plan(multisession, workers = detectCores())
@@ -50,6 +51,6 @@ airwars <- airwars |>
   # after this correction we want to create the URLs
 
 # save out airwars metadata
-write_csv(airwars, "~/UMD/classes/fund_comp_data_display_SURV727/project/airwars_meta.csv")
+write_csv(airwars, "~/repos/airwars_scraping_project/data/airwars_meta.csv")
 
 # ____________________________________ END _____________________________________
