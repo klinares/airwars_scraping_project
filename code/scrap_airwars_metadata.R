@@ -2,55 +2,64 @@
 # ____ Script for scraping Casualty Incidents from airwars.org _____
 # ________________________________________________________________________
 
-pacman::p_load(rvest, glue, lubridate, furrr, parallel, tidyverse)
+pacman::p_load(rvest, glue, lubridate, RSQLite, DBI, furrr, dbplyr, parallel, tidyverse)
 
 
-### We will need a list of dates from the beginning of the war.
+# connect to database
+mydb <- dbConnect(RSQLite::SQLite(), "~/repos/airwars_scraping_project/data/airwars_db.sqlite")
+
+# we can now load the table into the database
+dbListTables(mydb)
+
+airwars_old <- tbl(mydb, "airwars_meta") |> as_tibble() 
+
+# create date vector w/ most recent date in airwars 
 # The webpage only presents 30 events at a time.
-# The start of the war was on October 7 2023
-dates <- seq(ymd("2023-10-07"), as_date(today()), by="day") 
+dates <- seq(max(mdy(airwars_old$Incident_Date)), as_date(today()), by="day") 
+
 
 print(str_c("Scrapped data as of ", Sys.Date()))
 
 
 plan(multisession, workers = detectCores())
 ### Loop through dates in the airwars archive page, parse Event days & IDs
-airwars <- future_map_dfr(dates, function(x){
+airwars_new <- future_map_dfr(dates, function(x){
   
-  link = glue("https://airwars.org/civilian-casualties/?end_date={x}&start_date={x}&country=the-gaza-strip")
+  url = read_html(glue(
+    "https://airwars.org/civilian-casualties/?end_date={x}&start_date={x}&country=the-gaza-strip")) #|> # pass the link
+    #html_elements(".incidentpreview__header") |> # keep what is needed
+    
   
-  read_html(glue("https://airwars.org/civilian-casualties/?end_date={x}&start_date={x}&country=the-gaza-strip")) |> # pass the link
-    html_elements(".incidentpreview__header") |> # keep what is needed
-    html_text2() |> # parse information 
-    as_tibble()
+  description = html_nodes(url, xpath = 
+               '//*[contains(concat( " ", @class, " " ), concat( " ", "meta-block", " " ))]//span | //h1//*[contains(concat( " ", @class, " " ), concat( " ", "incidentpreview__date", " " ))]//h4')
+  
+  
+  tibble(
+    Incident_Date = html_nodes(url, xpath = '//*[(@id = "posts")]//h1') |>   html_text2(),
+    Incident_id = html_nodes(url, xpath = 
+                                '//*[contains(concat( " ", @class, " " ), concat( " ", "meta-block", " " ))]//span') |> 
+      html_text2() 
+  )
 
-})
-
-# Finally, we 
-airwars <- airwars |> 
-  # parse what is needed for 2nd step
-  mutate(value = str_remove(value, "Incident date\n"), # strips un-needed text
-         value = str_replace(value, "\nIncident Code\n", "_")) |> # uses a marker to separate in the next line
-  separate(value, into=c('Incident_Date', 'Incident_id'), sep="_") |> # splits string into 2 new columns
-  
-  # we need to reformat the variables
+}) |> 
+# we need to reformat the variables and build out the url
   mutate(Incident_id = str_to_lower(Incident_id),
          Incident_Date = str_to_lower(Incident_Date),
          Incident_Date = str_remove(Incident_Date, ","),
          Incident_Date = str_replace_all(Incident_Date, " ", "-"),
-         id = row_number()
-         )
+         link = glue(
+           "https://airwars.org/civilian-casualties/{Incident_id}-{Incident_Date}/")) 
 
 
-# there are some events where there incidence date does not match their URL & we have to go correct
-airwars <- airwars |> 
-  mutate(Incident_Date = ifelse(Incident_id == "ispt0394", "october-20-2023", Incident_Date),
-         # after this correction we want to create the URLs
-         link = glue("https://airwars.org/civilian-casualties/{Incident_id}-{Incident_Date}/")
-  )
-  # after this correction we want to create the URLs
+# we can now append the new rows to the database
+dbWriteTable(mydb, "airwars_meta", airwars_new, append=TRUE,  overwrite=FALSE)
 
-# save out airwars metadata
-write_csv(airwars, "~/repos/airwars_scraping_project/data/airwars_meta.csv")
+# create table with new events
+dbWriteTable(mydb, "airwars_new", airwars_new)
 
+
+# check if the table saved
+tbl(mydb, "airwars_new") |> as_tibble() 
+
+dbDisconnect(mydb)
 # ____________________________________ END _____________________________________

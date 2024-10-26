@@ -2,31 +2,85 @@
 # ____ Script for scraping Cassualty Incidents from airwars.org _____
 # ________________________________________________________________________
 
-pacman::p_load(rvest, lubridate, arrow, furrr, writexl, parallel, tidyverse, data.table)
+pacman::p_load(rvest, lubridate, RSQLite, DBI, furrr, dbplyr, 
+               parallel, tidyverse, data.table)
 
-# read in metadata need for creating queries
-airwars <- read.csv("~/repos/airwars_scraping_project/data/airwars_meta.csv") |> 
-  arrange(id) |> 
+
+# connect to database
+mydb <- dbConnect(RSQLite::SQLite(), "~/repos/airwars_scraping_project/data/airwars_db.sqlite")
+
+# we can now load the table into the database
+dbListTables(mydb)
+
+airwars_meta <- tbl(mydb, "airwars_new") |> 
+  as_tibble() |> 
+  mutate(id= row_number()) |> 
   group_by(id) |> 
   group_split()
   
-
+# ________________________________________________________________________
+# scrap incident assessment
 plan(multisession, workers = detectCores())
 
-airwars_events <- future_map(airwars, function(x){
-    
-    
-    message(str_c("Scarping incidence number ", x[[3]], 
-                  " \nevent ID ", x[[2]], 
-                  " that occured on ", x[[1]], 
-                  "\nand url link is . . . ", x[[4]]))
-    
-    html = read_html(x[[4]])
-    
-    # keep what is needed
-    
+airwars_assessment <- future_map_dfr(airwars_meta, function(x){ 
+  
+  html = read_html(x[[3]])
+  
+  tibble(
+    Incident_id = x[[2]],
     # parse out summary of event
-    Airwars_assessment = html |> html_elements(".summary") |> html_text2() |> toString()
+    assessment = html_nodes(html, xpath = 
+                                      '//*[contains(concat( " ", @class, " " ), concat( " ", "summary", " " ))]//p') |> 
+      html_text2() |> toString()
+  )
+  })
+  
+# write results to database table
+dbWriteTable(mydb, "airwars_assessment", airwars_assessment, 
+             append=TRUE, overwrite=FALSE)
+
+# __________________________________________________________________________
+
+
+# scrap geolocation  data
+plan(multisession, workers = detectCores())
+
+airwars_coord <- future_map_dfr(airwars_meta, function(x){ 
+  
+  html = read_html(x[[3]])
+  
+  tibble(
+    Incident_id = x[[2]],
+    if(html |> html_nodes(".geolocation-notes") |> length() == 0 ){
+          tibble(lat=NA, long=NA)
+
+        } else{
+          html |> html_nodes(".geolocation-notes") |> html_text2() |>
+            str_extract_all("\\d+\\.\\d+") |>
+            unlist() |>
+            bind_cols() |>
+            data.table::transpose() |>
+            rename(lat=1, long=2)
+        } |> 
+      mutate(across(where(is.list), ~ as.character(.x)))
+      ) |> 
+    select(Incident_id, lat, long)
+  })
+
+# write results to database table
+dbWriteTable(mydb, "airwars_coord", airwars_coord, 
+             append=TRUE, overwrite=FALSE)
+
+# ______________________________________________________________________
+
+
+# scrap incident data
+plan(multisession, workers = detectCores())
+
+airwars_events <- future_map(airwars_meta, function(x){
+    
+    
+    html = read_html(x[[3]])
     
     # read in summary fields
     html_meta = html |> html_nodes(".meta-list") 
@@ -34,11 +88,9 @@ airwars_events <- future_map(airwars, function(x){
     
     summary_dat = 
       
-      #meta data
-      tibble(Airwars_assessment = str_remove_all(Airwars_assessment, "\n"),
-             Incidence_date = x[[1]],
-             Incidence_id = x[[2]],
-             Incidence_url = x[[4]]) |> 
+      # meta data
+      tibble(Incident_Date = x[[1]],
+             Incident_id = x[[2]]) |> 
       
       # add new columns
       add_column(
@@ -56,33 +108,20 @@ airwars_events <- future_map(airwars, function(x){
           select(-Incident_notes, -var_with_casualty_type)|> 
           pivot_wider(names_from = Incident_field, values_from = Incident_result) 
       ) |> 
-      
-      # add geodata
-      add_column(
-        
-        if(html |> html_nodes(".geolocation-notes") |> length() == 0 ){
-          tibble(lat=NA, lon=NA)
-          
-        } else{
-          html |> html_nodes(".geolocation-notes") |> html_text2() |> 
-            str_extract_all("\\d+\\.\\d+") |>
-            unlist() |> 
-            bind_cols() |> 
-            data.table::transpose() |> 
-            rename(lat=1, long=2)
-        }
-      ) |> 
-      # convert list variables to character
       mutate(across(where(is.list), ~ as.character(.x)))
     
     return(summary_dat)
     
   }) |> 
-  bind_rows() |> 
-  # move text column to last
-  relocate(Airwars_assessment, .after=last_col())
+  bind_rows() 
 
-# save out data
-write_parquet(airwars_events, "~/repos/airwars_scraping_project/data/airwars_incidence.parquet")
-write_csv(airwars_events, "~/repos/airwars_scraping_project/data/airwars_incidence.csv")
+
+# write results to database table
+dbWriteTable(mydb, "airwars_events", airwars_events, 
+             append=TRUE,  overwrite=FALSE)
+
+# remvove airwars_new
+dbRemoveTable(mydb, "airwars_new")
+dbListTables(mydb)
+
 # _____________________________ END __________________________
