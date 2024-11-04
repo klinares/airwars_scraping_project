@@ -2,12 +2,12 @@
 # ____ Script for scraping Cassualty Incidents from airwars.org _____
 # ________________________________________________________________________
 
-pacman::p_load(rvest, lubridate, RSQLite, DBI, furrr, dbplyr, 
-               parallel, tidyverse, data.table)
+pacman::p_load(rvest, lubridate, RSQLite, DBI, dbplyr, 
+               glue, jsonlite, tidyverse, data.table)
 
 
 # connect to database
-mydb <- dbConnect(RSQLite::SQLite(), "~/repos/airwars_scraping_project/data/airwars_db.sqlite")
+mydb <- dbConnect(RSQLite::SQLite(), "~/repos/airwars_scraping_project/database/airwars_db.sqlite")
 
 # we can now load the table into the database
 dbListTables(mydb)
@@ -20,9 +20,8 @@ airwars_meta <- tbl(mydb, "airwars_new") |>
   
 # ________________________________________________________________________
 # scrap incident assessment
-plan(multisession, workers = detectCores())
 
-airwars_assessment <- future_map_dfr(airwars_meta, function(x){ 
+airwars_assessment <- map_dfr(airwars_meta, function(x){ 
   
   html = read_html(x[[3]])
   
@@ -43,16 +42,16 @@ dbWriteTable(mydb, "airwars_assessment", airwars_assessment,
 
 
 # scrap geolocation  data
-plan(multisession, workers = detectCores())
+## find location type when coordinates are present
 
-airwars_coord <- future_map_dfr(airwars_meta, function(x){ 
+airwars_coord <- map_dfr(airwars_meta, function(x){ 
   
   html = read_html(x[[3]])
   
   tibble(
     Incident_id = x[[2]],
     if(html |> html_nodes(".geolocation-notes") |> length() == 0 ){
-          tibble(lat=NA, long=NA)
+          tibble(lat=NA, long=NA, type_location = NA)
 
         } else{
           html |> html_nodes(".geolocation-notes") |> html_text2() |>
@@ -60,11 +59,22 @@ airwars_coord <- future_map_dfr(airwars_meta, function(x){
             unlist() |>
             bind_cols() |>
             data.table::transpose() |>
-            rename(lat=1, long=2)
+            rename(lat=1, long=2) |> 
+            # locate the type of location usign coordinates
+            mutate(lat = as.numeric(lat),
+                   long = as.numeric(long),
+                   type_location = map2(lat, long, function(x, y){
+                     
+                     fromJSON(
+                       glue(
+                         "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat={x}&lon={y}")
+                     )$type
+                   }),
+                   type_location = as.character(type_location))
         } |> 
       mutate(across(where(is.list), ~ as.character(.x)))
       ) |> 
-    select(Incident_id, lat, long)
+    select(Incident_id, lat, long, type_location)
   })
 
 # write results to database table
@@ -75,10 +85,8 @@ dbWriteTable(mydb, "airwars_coord", airwars_coord,
 
 
 # scrap incident data
-plan(multisession, workers = detectCores())
 
-airwars_events <- future_map(airwars_meta, function(x){
-    
+airwars_events <- map(airwars_meta, function(x){
     
     html = read_html(x[[3]])
     
@@ -124,4 +132,5 @@ dbWriteTable(mydb, "airwars_events", airwars_events,
 dbRemoveTable(mydb, "airwars_new")
 dbListTables(mydb)
 
+dbDisconnect(mydb)
 # _____________________________ END __________________________

@@ -6,7 +6,7 @@ pacman::p_load(rvest, glue, lubridate, RSQLite, DBI, furrr, dbplyr, parallel, ti
 
 
 # connect to database
-mydb <- dbConnect(RSQLite::SQLite(), "~/repos/airwars_scraping_project/data/airwars_db.sqlite")
+mydb <- dbConnect(RSQLite::SQLite(), "~/repos/airwars_scraping_project/database/airwars_db.sqlite")
 
 # we can now load the table into the database
 dbListTables(mydb)
