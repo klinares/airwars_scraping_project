@@ -1,5 +1,5 @@
 
-pacman::p_load(DBI, reticulate, tidytext, furrr, parallel, huggingfaceR, dbplyr, RSQLite, tidyverse)
+pacman::p_load(DBI, reticulate, tidytext, huggingfaceR, dbplyr, RSQLite, tidyverse)
 
 
 # connect to database
@@ -14,8 +14,8 @@ airwars_assessment <- tbl(mydb, "airwars_assessment") |>
 
 
 # pipein the model
-SamLowe <- hf_load_pipeline(
-  model_id = "SamLowe/roberta-base-go_emotions", 
+roberta <- hf_load_pipeline(
+  model_id = "j-hartmann/emotion-english-roberta-large", 
   task = "text-classification", return_all_scores=TRUE, 
    truncation=TRUE)
 
@@ -25,12 +25,19 @@ airwars_assessment_new <-
   airwars_assessment |> 
   group_split(Incident_id) |> 
   map_dfr(function(x){
-    
-    print(x[1])
-    print(x[2])
-    # mod = SamLowe(x[[2]]) |> 
-    #   bind_rows() |> 
-    #   as_tibble() |> 
-    #   mutate(Incident_id = x)
+    mod = roberta(x[[2]]) |>
+      bind_rows() |>
+      as_tibble() |>
+      mutate(Incident_id = x[[1]])
     }) 
   
+
+# save table to database
+# create table with new events
+dbWriteTable(mydb, "airwars_text_emotion", airwars_assessment_new, overwrite=TRUE)
+
+# check if the table saved
+dbListTables(mydb)
+
+
+dbDisconnect(mydb)

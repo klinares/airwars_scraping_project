@@ -37,9 +37,12 @@ airwars_coord_new <-
   
 
 
+api_keys <- read_csv("~/repos/api-keys.csv")
 
 
-register_google(key = "AIzaSyDCAezNPnkewEmZoy9u1Xwzo-nxMntG3lU", write = TRUE)
+register_google(key = api_keys |> 
+                  filter(key_id == "google_key") |> 
+                  pull(key), write = TRUE)
 
 get_googlemap(center = "Gaza Strip", maptype = "hybrid", zoom=11) |> 
   ggmap() + 

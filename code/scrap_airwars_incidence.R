@@ -2,7 +2,7 @@
 # ____ Script for scraping Cassualty Incidents from airwars.org _____
 # ________________________________________________________________________
 
-pacman::p_load(rvest, lubridate, RSQLite, DBI, dbplyr, 
+pacman::p_load(rvest, lubridate, RSQLite, DBI, furrr, parallel, dbplyr, 
                glue, jsonlite, tidyverse, data.table)
 
 
@@ -12,7 +12,7 @@ mydb <- dbConnect(RSQLite::SQLite(), "~/repos/airwars_scraping_project/database/
 # we can now load the table into the database
 dbListTables(mydb)
 
-airwars_meta <- tbl(mydb, "airwars_new") |> 
+airwars_meta <- tbl(mydb, "airwars_meta") |> 
   as_tibble() |> 
   mutate(id= row_number()) |> 
   group_by(id) |> 
@@ -20,8 +20,9 @@ airwars_meta <- tbl(mydb, "airwars_new") |>
   
 # ________________________________________________________________________
 # scrap incident assessment
+plan(multisession, workers = detectCores())
 
-airwars_assessment <- map_dfr(airwars_meta, function(x){ 
+airwars_assessment <- future_map_dfr(airwars_meta, function(x){ 
   
   html = read_html(x[[3]])
   
@@ -35,8 +36,7 @@ airwars_assessment <- map_dfr(airwars_meta, function(x){
   })
   
 # write results to database table
-dbWriteTable(mydb, "airwars_assessment", airwars_assessment, 
-             append=TRUE, overwrite=FALSE)
+dbWriteTable(mydb, "airwars_assessment", airwars_assessment, overwrite=TRUE)
 
 # __________________________________________________________________________
 
@@ -78,15 +78,15 @@ airwars_coord <- map_dfr(airwars_meta, function(x){
   })
 
 # write results to database table
-dbWriteTable(mydb, "airwars_coord", airwars_coord, 
-             append=TRUE, overwrite=FALSE)
+dbWriteTable(mydb, "airwars_coord", airwars_coord, overwrite=TRUE)
 
 # ______________________________________________________________________
 
 
 # scrap incident data
+plan(multisession, workers = detectCores())
 
-airwars_events <- map(airwars_meta, function(x){
+airwars_events <- future_map(airwars_meta, function(x){
     
     html = read_html(x[[3]])
     
@@ -125,11 +125,9 @@ airwars_events <- map(airwars_meta, function(x){
 
 
 # write results to database table
-dbWriteTable(mydb, "airwars_events", airwars_events, 
-             append=TRUE,  overwrite=FALSE)
+dbWriteTable(mydb, "airwars_events", airwars_events, overwrite=TRUE)
 
 # remvove airwars_new
-dbRemoveTable(mydb, "airwars_new")
 dbListTables(mydb)
 
 dbDisconnect(mydb)

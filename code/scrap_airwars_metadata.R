@@ -8,14 +8,10 @@ pacman::p_load(rvest, glue, lubridate, RSQLite, DBI, furrr, dbplyr, parallel, ti
 # connect to database
 mydb <- dbConnect(RSQLite::SQLite(), "~/repos/airwars_scraping_project/database/airwars_db.sqlite")
 
-# we can now load the table into the database
-dbListTables(mydb)
-
-airwars_old <- tbl(mydb, "airwars_meta") |> as_tibble() 
 
 # create date vector w/ most recent date in airwars 
 # The webpage only presents 30 events at a time.
-dates <- seq(max(mdy(airwars_old$Incident_Date)), as_date(today()), by="day") 
+dates <- seq(as_date("2023-10-01"), as_date(today()), by="day") 
 
 
 print(str_c("Scrapped data as of ", Sys.Date()))
@@ -26,13 +22,10 @@ plan(multisession, workers = detectCores())
 airwars_new <- future_map_dfr(dates, function(x){
   
   url = read_html(glue(
-    "https://airwars.org/civilian-casualties/?end_date={x}&start_date={x}&country=the-gaza-strip")) #|> # pass the link
-    #html_elements(".incidentpreview__header") |> # keep what is needed
-    
+    "https://airwars.org/civilian-casualties/?end_date={x}&start_date={x}&country=the-gaza-strip")) 
   
   description = html_nodes(url, xpath = 
                '//*[contains(concat( " ", @class, " " ), concat( " ", "meta-block", " " ))]//span | //h1//*[contains(concat( " ", @class, " " ), concat( " ", "incidentpreview__date", " " ))]//h4')
-  
   
   tibble(
     Incident_Date = html_nodes(url, xpath = '//*[(@id = "posts")]//h1') |>   html_text2(),
@@ -52,7 +45,7 @@ airwars_new <- future_map_dfr(dates, function(x){
 
 
 # we can now append the new rows to the database
-dbWriteTable(mydb, "airwars_meta", airwars_new, append=TRUE,  overwrite=FALSE)
+dbWriteTable(mydb, "airwars_meta", airwars_new, overwrite=TRUE)
 
 # create table with new events
 dbWriteTable(mydb, "airwars_new", airwars_new)
