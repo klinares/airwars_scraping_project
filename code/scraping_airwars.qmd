@@ -1,0 +1,58 @@
+---
+title: "Social Media Analysis of Conflict in Gaza Reveals Crumbling Infrastructure, High Death Toll"
+author: Kevin Linares
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+embed-resources: true
+editor: visual
+execute:
+  warning: false
+  message: false
+  error: false
+  tidy: true
+format: html
+theme: spacelab
+toc: true
+toc-depth: 2
+---
+
+***The ongoing Gaza-Israel conflict is likely to persist in 2025 threatening to destabilize the region---while affecting the well being of children and women---and the strategic utilization of open-source data can empower policymakers to mitigate humanitarian challenges in the region.*** Gaza's death toll estimates at over 43,000, with children and women representing a sizable proportion, as reported by the Hamas' Ministry of Health (MoH), yet it cannot be corroborated by outside organizations. [Airwars](https://airwars.org/conflict/israel-and-gaza-2023/), an NGO, has scrapped social media platforms since October 2023 from users posting details about the death of friends, family, and neighbors. We aim to use the Airwars' Gaza conflict tracker to assess to what extent can open-source data be used to identify patterns in the targeting of civilian infrastructure as well as approximate official casualty estimates?
+
+-    Our methodology consists of scrapping incident reports from the [Airwars](https://airwars.org/conflict/israel-and-gaza-2023/) website containing information about civilian casualties. We intend to derive from this data a casualty rate for children and women to explore how it approximates official MoH estimates.
+
+-   Airwars data also contain summaries describing in detail the incidents. We leverage [huggingface](https://huggingface.co/j-hartmann/emotion-english-distilroberta-base?text=Oh+wow.+I+didn%27t+know+that.) to examine changes in the emotional tone of these summaries and couple them with the children and women casualty rate to provide more context into these estimates.
+
+-    Coordinates of incidents are sometimes provided, and we use this information to submit queries to the [openstreetmap api](https://nominatim.org/release-docs/develop/api/Reverse/) to return additional information about what these locations were (i.e., schools, mosques, government buildings, etc). This information will allow us to explore what parts of Gaza's infrastructure has endured the most destruction, through static map plots or interactive map visuals with the ability to filter through the types of locations.
+
+-    We enrich the Airwars database by joining the MoH casualty daily counts, which we plot with our casualty estimate to explore the discrepancy. We also join to the Airwars database the Armed Conflict Location and Event Data ([ACLED](https://acleddata.com/)) containing characteristics of Israel's operations to explore if the incidents in Airwars correspond with the Israeli operations in Gaza reported in ACLED, and this will be used as as a validation check of our data.
+
+\
+
+### We will use the following packages and project code can be found in our [github](https://github.com/klinares/airwars_scraping_project) repository. 
+
+```{r}
+pacman::p_load(rvest, glue, lubridate, RSQLite, DBI, furrr, dbplyr, parallel, tidyverse)
+```
+
+\
+
+### We also store all of our data in a SQLite database that can also be found in our github repository 
+
+## Scraping Airwars Incidents
+
+-   The image below is an example of the Airwars incident metdata that are presented at baseball cards. This information is all presented in one web-page
+
+![Example of Incident Metadata](images/airwars_metadata_example.png){alt="Example of Incident Metadata" fig-align="center" width="600"}
+
+## Appendix. Details on the data used for this project. {.appendix}
+
+Since the beginning of the war in October 7th, 2023, Airwars has monitored open source civilian harm incidents in Gaza. Incident is defined as an explosive weapon or ground battle operation that produced civilian casualties or harm. Civilian status of victims is assumed unless there is information determining their militant status. Data is derived from tweets or Facebook postings, translated from Arabic-to-English and when names are provided they are counted as a casualty. These names are corroborated with the Hamas MoH when they are released. All data is presented on their website, and each incident has its own web-page.
+
+-    The scrapped data resulted in almost 800 unique events stored across four tables in a SQLite database. The first table contains incident metadata (e.g., unique id, incident date, web-page URL). The second table stores the specific incident information such as the number of deaths, breakdown of deaths (children, adults), type of attack, and cause of death. The third table includes incident coordinates and results from OSM, while the last table stores incident summaries and sentiment scores for seven emotional states. These tables relate to each other through the unique incident identification numbers provided by Airwars.
+
+-   [Palestine Dataset](https://data.techforpalestine.org/) published daily Gaza casualty counts in a downloadable .csv file that they take from the Hamas MoH; however, they do not make a distinction whether a casualty was a civilian or militant so their numbers should be higher than what we derive from Airwars.[^1]
+
+-   ACLED tracks conflict events around the world, and here we use the Israel Defense Force airstrikes and ground operations in Gaza since October 2023. The data is provided in a downloadable .csv containing date and type of conflict and the actors involved.
+
+-   Both of these external data source and the Airwars incidents are aggregated at the daily level so that we can join them together.
+
+[^1]: Note. Confidence is low to moderate since the data comes from the Hamas MoH.
