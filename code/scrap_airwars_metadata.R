@@ -47,12 +47,6 @@ airwars_new <- future_map_dfr(dates, function(x){
 # we can now append the new rows to the database
 dbWriteTable(mydb, "airwars_meta", airwars_new, overwrite=TRUE)
 
-# create table with new events
-dbWriteTable(mydb, "airwars_new", airwars_new)
-
-
-# check if the table saved
-tbl(mydb, "airwars_new") |> as_tibble() 
 
 dbDisconnect(mydb)
 # ____________________________________ END _____________________________________

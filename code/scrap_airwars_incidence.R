@@ -60,11 +60,12 @@ airwars_coord <- map_dfr(airwars_meta, function(x){
             bind_cols() |>
             data.table::transpose() |>
             rename(lat=1, long=2) |> 
-            # locate the type of location usign coordinates
+            # locate the type of location using coordinates
             mutate(lat = as.numeric(lat),
                    long = as.numeric(long),
                    type_location = map2(lat, long, function(x, y){
                      
+                     # hit the OSM API
                      fromJSON(
                        glue(
                          "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat={x}&lon={y}")
@@ -127,7 +128,6 @@ airwars_events <- future_map(airwars_meta, function(x){
 # write results to database table
 dbWriteTable(mydb, "airwars_events", airwars_events, overwrite=TRUE)
 
-# remvove airwars_new
 dbListTables(mydb)
 
 dbDisconnect(mydb)

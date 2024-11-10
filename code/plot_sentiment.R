@@ -19,14 +19,14 @@ airwars_text_emotion <- tbl(mydb, "airwars_text_emotion") |>
   left_join(airwars_meta |> select(Incident_Date, Incident_id)) |> 
   mutate(Incident_Date = lubridate::mdy(Incident_Date) ) |> 
   # average by day
-  group_by(Incident_Date, label) |> 
-  reframe(score = mean(score))
+  group_by(Incident_Date, label_x) |> 
+  reframe(score_x = mean(score_x))
 
 # types of emotions
-airwars_text_emotion |> distinct(label) 
+airwars_text_emotion |> distinct(label_x) 
 
 airwars_text_emotion |> 
-  ggplot(aes(x=Incident_Date, y=score)) +
+  ggplot(aes(x=Incident_Date, y=score_x)) +
   geom_area(fill = "gray", alpha = 0.9) +
   geom_smooth(se = FALSE) +
-  facet_wrap(~label)
+  facet_wrap(~label_x)
