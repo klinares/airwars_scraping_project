@@ -17,37 +17,80 @@ toc-depth: 2
 
 ***The ongoing Gaza-Israel conflict is likely to persist in 2025 threatening to destabilize the region---while affecting the well being of children and women---and the strategic utilization of open-source data can empower policymakers to mitigate humanitarian challenges in the region.*** Gaza's death toll estimates at over 43,000, with children and women representing a sizable proportion, as reported by the Hamas' Ministry of Health (MoH), yet it cannot be corroborated by outside organizations. [Airwars](https://airwars.org/conflict/israel-and-gaza-2023/), an NGO, has scrapped social media platforms since October 2023 from users posting details about the death of friends, family, and neighbors. We aim to use the Airwars' Gaza conflict tracker to assess to what extent can open-source data be used to identify patterns in the targeting of civilian infrastructure as well as approximate official casualty estimates?
 
--    Our methodology consists of scrapping incident reports from the [Airwars](https://airwars.org/conflict/israel-and-gaza-2023/) website containing information about civilian casualties. We intend to derive from this data a casualty rate for children and women to explore how it approximates official MoH estimates.
+-   Our methodology consists of scrapping incident reports from the [Airwars](https://airwars.org/conflict/israel-and-gaza-2023/) website containing information about civilian casualties. We intend to derive from this data a casualty rate for children and women to explore how it approximates official MoH estimates.
 
 -   Airwars data also contain summaries describing in detail the incidents. We leverage [huggingface](https://huggingface.co/j-hartmann/emotion-english-distilroberta-base?text=Oh+wow.+I+didn%27t+know+that.) to examine changes in the emotional tone of these summaries and couple them with the children and women casualty rate to provide more context into these estimates.
 
--    Coordinates of incidents are sometimes provided, and we use this information to submit queries to the [openstreetmap api](https://nominatim.org/release-docs/develop/api/Reverse/) to return additional information about what these locations were (i.e., schools, mosques, government buildings, etc). This information will allow us to explore what parts of Gaza's infrastructure has endured the most destruction, through static map plots or interactive map visuals with the ability to filter through the types of locations.
+-   Coordinates of incidents are sometimes provided, and we use this information to submit queries to the [openstreetmap api](https://nominatim.org/release-docs/develop/api/Reverse/) to return additional information about what these locations were (i.e., schools, mosques, government buildings, etc). This information will allow us to explore what parts of Gaza's infrastructure has endured the most destruction, through static map plots or interactive map visuals with the ability to filter through the types of locations.
 
--    We enrich the Airwars database by joining the MoH casualty daily counts, which we plot with our casualty estimate to explore the discrepancy. We also join to the Airwars database the Armed Conflict Location and Event Data ([ACLED](https://acleddata.com/)) containing characteristics of Israel's operations to explore if the incidents in Airwars correspond with the Israeli operations in Gaza reported in ACLED, and this will be used as as a validation check of our data.
+-   We enrich the Airwars database by joining the MoH casualty daily counts, which we plot with our casualty estimate to explore the discrepancy. We also join to the Airwars database the Armed Conflict Location and Event Data ([ACLED](https://acleddata.com/)) containing characteristics of Israel's operations to explore if the incidents in Airwars correspond with the Israeli operations in Gaza reported in ACLED, and this will be used as as a validation check of our data.
 
-\
-
-### We will use the following packages and project code can be found in our [github](https://github.com/klinares/airwars_scraping_project) repository. 
+### We will use the following packages and project code can be found in our [github](https://github.com/klinares/airwars_scraping_project) repository.
 
 ```{r}
-pacman::p_load(rvest, glue, lubridate, RSQLite, DBI, furrr, dbplyr, parallel, tidyverse)
+pacman::p_load(lubridate, RSQLite, knitr, DBI, tidyverse)
 ```
 
 \
 
-### We also store all of our data in a SQLite database that can also be found in our github repository 
+### We also store all of our data in a [SQLite database](https://github.com/klinares/airwars_scraping_project/tree/main/database) that can also be found in our github repository
+
+-   The scrapped data resulted in over 800 unique events stored across four tables in a SQLite database. The first table contains incident metadata (e.g., unique id, incident date, web-page URL). The second table stores the specific incident information such as the number of deaths, breakdown of deaths (children, adults), type of attack, and cause of death. The third table includes incident coordinates and results from OSM, while the last table stores incident summaries and sentiment scores for seven emotional states. These tables relate to each other through the unique incident identification numbers provided by Airwars.
+
+-   Additionally, we have two more tables that include the data from Palestine Data daily casualties and the ACLED data.
+
+```{r}
+# connect to database
+mydb <- dbConnect(RSQLite::SQLite(), 
+                  "~/repos/airwars_scraping_project/database/airwars_db.sqlite")
+```
 
 ## Scraping Airwars Incidents
 
--   The image below is an example of the Airwars incident metdata that are presented at baseball cards. This information is all presented in one web-page
+-   The image below is an example of the Airwars incident metadata that are presented at baseball cards. This information is all presented in one web-page and we start our workflow at this junction. We read the main website in Airwars that houses this information and only scrape Incident Date and ID to build specific incident web-urls that we later scrape for content.
+    -   All of the code to conduct the scraping and processing of these data are found in github under code/scrape_process/incidence, which this code has been optimized and takes about 20 minutes on a modern laptop (32gb of RAM is sufficient) with fast internet connection. We will describe the use of a laptop GPU to process the sentiment analysis.
+    -   Here we only explain how we pre-processed the data as it related to preparing for analysis.
 
-![Example of Incident Metadata](images/airwars_metadata_example.png){alt="Example of Incident Metadata" fig-align="center" width="600"}
+![Example of Incident Metadata](images/airwars_metadata_example.png){fig-align="center" width="600"}
+
+-   Below we print a sample of incident events from the metadata table that we use the URLs we build in this table, read in each separate web-url (over 800 URLs), and parse information that is needed.
+
+```{r}
+tbl(mydb, "airwars_meta") |> 
+  as_tibble() |> 
+  slice_sample(n=5) |> 
+  kable()
+```
+
+-   Each incident contains an assessment section detailing what transpired during the incident, whom was known to be involved and the victims it produced. We will use this text to get emotional scores later.
+
+[![Example of Airwars Incident](images/airwars_incident_example.png){fig-align="center" width="620"}](https://airwars.org/civilian-casualties/ispt120524j-may-12-2024/)
+
+-   df
+
+```{r}
+tbl(mydb, "airwars_assessment") |> 
+  as_tibble() |> 
+  slice_sample(n=10) |> 
+  kable()
+```
+
+-   Below we print the first incidents with the date, id, and the web URL. This becomes our metadata table that we can now save into our database. In the next step we will loop through all of these web URLs and scrap what we need.
+
+```{r, , eval=FALSE}
+airwars_meta |> head() |> kable()
+
+# we can now append the new rows to the database
+dbWriteTable(mydb, "airwars_meta", airwars_meta, overwrite=TRUE)
+```
+
+\
+
+## Scraping Incident event data
 
 ## Appendix. Details on the data used for this project. {.appendix}
 
 Since the beginning of the war in October 7th, 2023, Airwars has monitored open source civilian harm incidents in Gaza. Incident is defined as an explosive weapon or ground battle operation that produced civilian casualties or harm. Civilian status of victims is assumed unless there is information determining their militant status. Data is derived from tweets or Facebook postings, translated from Arabic-to-English and when names are provided they are counted as a casualty. These names are corroborated with the Hamas MoH when they are released. All data is presented on their website, and each incident has its own web-page.
-
--    The scrapped data resulted in almost 800 unique events stored across four tables in a SQLite database. The first table contains incident metadata (e.g., unique id, incident date, web-page URL). The second table stores the specific incident information such as the number of deaths, breakdown of deaths (children, adults), type of attack, and cause of death. The third table includes incident coordinates and results from OSM, while the last table stores incident summaries and sentiment scores for seven emotional states. These tables relate to each other through the unique incident identification numbers provided by Airwars.
 
 -   [Palestine Dataset](https://data.techforpalestine.org/) published daily Gaza casualty counts in a downloadable .csv file that they take from the Hamas MoH; however, they do not make a distinction whether a casualty was a civilian or militant so their numbers should be higher than what we derive from Airwars.[^1]
 
