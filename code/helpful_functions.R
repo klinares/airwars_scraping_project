@@ -67,7 +67,8 @@ pull_coords_fun <- function(web_content){
     mutate(across(where(is.list), ~ as.character(.x)),
            # attach incident id number
            Incident_id = web_content[[1]]) |> 
-    relocate(Incident_id)
+    select(Incident_id, lat, long, type_location) |> 
+    drop_na()
 }
 
 
@@ -100,9 +101,6 @@ pull_incident_fun <- function(web_content){
            casualty_estimate = ifelse(str_detect(
              civilians_reported_killed, "–"), "range", "absolute") 
     ) |> 
-    # fields contain either ranges (2-5), or several counts(1 child, 3 women, 1 man)
-    ## we need to separate each one of these into their own field, & overwrite the table
-    # separate estimates with ranges
     separate(civilians_reported_killed, c("min_killed", "max_killed")) |> 
     mutate(max_killed = ifelse(is.na(max_killed), min_killed, max_killed),
            # combine kill ranges

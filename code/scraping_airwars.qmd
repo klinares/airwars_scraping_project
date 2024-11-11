@@ -25,7 +25,7 @@ toc-depth: 2
 
 -   We enrich the Airwars database by joining the MoH casualty daily counts, which we plot with our casualty estimate to explore the discrepancy. We also join to the Airwars database the Armed Conflict Location and Event Data ([ACLED](https://acleddata.com/)) containing characteristics of Israel's operations to explore if the incidents in Airwars correspond with the Israeli operations in Gaza reported in ACLED, and this will be used as as a validation check of our data.
 
-### We will use the following packages and project code can be found in our [github](https://github.com/klinares/airwars_scraping_project) repository.
+### We will use the following packages and project code can be found in our [github](https://github.com/klinares/airwars_scraping_project) repository. Additionally we used the text, data.table, and jsonlite packages.
 
 ```{r}
 pacman::p_load(lubridate, RSQLite, knitr, DBI, tidyverse)
@@ -45,15 +45,20 @@ mydb <- dbConnect(RSQLite::SQLite(),
                   "~/repos/airwars_scraping_project/database/airwars_db.sqlite")
 ```
 
-## Scraping Airwars Incidents
+\
 
--   The image below is an example of the Airwars incident metadata that are presented at baseball cards. This information is all presented in one web-page and we start our workflow at this junction. We read the main website in Airwars that houses this information and only scrape Incident Date and ID to build specific incident web-urls that we later scrape for content.
-    -   All of the code to conduct the scraping and processing of these data are found in github under code/scrape_process/incidence, which this code has been optimized and takes about 20 minutes on a modern laptop (32gb of RAM is sufficient) with fast internet connection. We will describe the use of a laptop GPU to process the sentiment analysis.
+## Scraping Airwars Civilian Casualties Incidents
+
+-   The image below is an example of the Airwars incident metadata that are presented at baseball cards. This information is all presented in one web-page and we start our workflow at this junction. We read the main website in Airwars that houses this information and only scrape [[Incident Date]{.underline}]{style="color: purple"} and [[Incident ID]{.underline}]{style="color: purple"} to build specific incident web-urls that we later scrape for content.
+    -   All of the code to conduct the scraping and processing of these data are found in our github page under [code/scrape_process_incidence](https://github.com/klinares/airwars_scraping_project/blob/main/code/scrape_process_incidence.R), which this code has been optimized and takes about 20 minutes on a modern laptop (32gb of RAM is sufficient) with fast internet connection. We will describe the use of a laptop GPU to process the sentiment analysis.
     -   Here we only explain how we pre-processed the data as it related to preparing for analysis.
+    -   For a lot of the scraping we used selectorgadget to get the xpath and pass it through the Rvest package.
 
 ![Example of Incident Metadata](images/airwars_metadata_example.png){fig-align="center" width="600"}
 
--   Below we print a sample of incident events from the metadata table that we use the URLs we build in this table, read in each separate web-url (over 800 URLs), and parse information that is needed.
+\
+
+-   [Metadata table:]{style="color: forestgreen"} We scrape the main Airwars website parse information we need to build a table containing each incident's web-url (over 800 URLs), as seen in the example below.
 
 ```{r}
 tbl(mydb, "airwars_meta") |> 
@@ -66,36 +71,79 @@ tbl(mydb, "airwars_meta") |>
 
 [![Example of Airwars Incident](images/airwars_incident_example.png){fig-align="center" width="620"}](https://airwars.org/civilian-casualties/ispt120524j-may-12-2024/)
 
--   df
+\
+
+-   [Assessment table:]{style="color: forestgreen"}[ ]{style="color"}Using the web-urls we built in the metadata table, we loop through them and scrape each url to parse incident assessments as seen below.
+
+-   [Sentiment analysis.]{style="color:darkorange"} After attempting several text classification models and some question/context model we landed on[j-hartmann/emotion-english-distilroberta-base](https://huggingface.co/j-hartmann/emotion-english-distilroberta-base?text=Oh+wow.+I+didn%27t+know+that.) because it goes beyond just a positive/negative evaluation but analysis text for Ekman's 6 basic emotions that is common in psychological work on emotions.Moreover, this model affords us the ability to examine the emotion tone over time for these assessments.[^1]
+
+    -   We get scores for each emotions, the closer to one the stronger the association, while all the scores add up to 1.
+
+    -   The model is trained on a balanced subset from the datasets listed above (2,811 observations per emotion, i.e., nearly 20k observations in total). 80% of this balanced subset is used for training and 20% for evaluation. The evaluation accuracy is 66% (vs. the random-chance baseline of 1/7 = 14%).
+
+    -   Given that we have over 800 assessments we decided to use [text](https://r-text.org/)[^2] while it allows us the ability to use a laptop GPU (GTX 4070)[^3] to process these models for each incident. This resulted in large processing gains reducing text analysis from two hours to 10 minutes.
+
+    -   
+
+[^1]:
+    -   The model is trained on a balanced subset from the datasets listed above (2,811 observations per emotion, i.e., nearly 20k observations in total). 80% of this balanced subset is used for training and 20% for evaluation. The evaluation accuracy is 66% (vs. the random-chance baseline of 1/7 = 14%).
+
+[^2]: An R-package for analyzing natural language with transformers from HuggingFace using Natural Language Processing and Machine Learning.
+
+[^3]: The installation for Text is tricky as the right python libraries must be installed. To compile models with the GPU, we learned that nvidia cuda drivers must be installed for version 12.1. Additionally, we could only get this to work via anaconda within Ubuntu 24.04 installed through WSL2 on Windows 11. Ubuntu 24.10 comes with a kernal that forces cuda 12.8 to be installed and did not work for us in a dual boot system.
 
 ```{r}
-tbl(mydb, "airwars_assessment") |> 
+assessment <- tbl(mydb, "airwars_assessment") |> 
   as_tibble() |> 
-  slice_sample(n=10) |> 
-  kable()
-```
+  slice_sample(n=1) 
 
--   Below we print the first incidents with the date, id, and the web URL. This becomes our metadata table that we can now save into our database. In the next step we will loop through all of these web URLs and scrap what we need.
+str_extract(assessment$assessment,"^.{1000}") |> kable(col.names = "Assessment") 
 
-```{r, , eval=FALSE}
-airwars_meta |> head() |> kable()
+assessment |> select(-assessment) |> kable()
 
-# we can now append the new rows to the database
-dbWriteTable(mydb, "airwars_meta", airwars_meta, overwrite=TRUE)
 ```
 
 \
 
-## Scraping Incident event data
+-   [Coordinates table:]{style="color: forestgreen"} Airwars when possible includes location coordinates of where the incident took place. Although this information is contained within the assessment, Airwars standardizes it's location with a heading under "Geolocation notes" which we were able to parse the latitude and longitude to use for geographic plotting. Of the 804 Incident events, only 489 of them had geographic notes.
+
+    -   We used the [Nominatim open street map API](https://nominatim.org/release-docs/develop/api/Reverse/) to reverse geocode our coordinates and bring back the type of location that was the location target for incidents that contained coordinates. We save this information in the table below as [[type_location]{.underline}]{style="color: purple"}.
+
+```{r}
+tbl(mydb, "airwars_coord") |> 
+  as_tibble() |> 
+  slice_sample(n=8) |> 
+  kable()
+```
+
+\
+
+-   [Incidence table:]{style="color: forestgreen"} Our final table contains the fields that Airwars populates for each incident. Besides parsing this information we also had to process the data, specifically, there are fields that contain ranges of kills (i.e., 3-5) or counts (i.e., 1 child, 3 women, 1 man) which we had to strip these strings into their own columns. This allows us to estimate how many children and women have been reported as civilian casualties. Our data contains 24 variables with 804 incidents reported by Airwars.
+
+```{r}
+tbl(mydb, "airwars_incidents") |> 
+  as_tibble() |> 
+  glimpse()
+```
+
+\
+
+## External Data Sources Enriches Airwars
+
+\
+
+\
+
+## 
 
 ## Appendix. Details on the data used for this project. {.appendix}
 
 Since the beginning of the war in October 7th, 2023, Airwars has monitored open source civilian harm incidents in Gaza. Incident is defined as an explosive weapon or ground battle operation that produced civilian casualties or harm. Civilian status of victims is assumed unless there is information determining their militant status. Data is derived from tweets or Facebook postings, translated from Arabic-to-English and when names are provided they are counted as a casualty. These names are corroborated with the Hamas MoH when they are released. All data is presented on their website, and each incident has its own web-page.
 
--   [Palestine Dataset](https://data.techforpalestine.org/) published daily Gaza casualty counts in a downloadable .csv file that they take from the Hamas MoH; however, they do not make a distinction whether a casualty was a civilian or militant so their numbers should be higher than what we derive from Airwars.[^1]
+-   [Palestine Dataset](https://data.techforpalestine.org/) published daily Gaza casualty counts in a downloadable .csv file that they take from the Hamas MoH; however, they do not make a distinction whether a casualty was a civilian or militant so their numbers should be higher than what we derive from Airwars.[^4]
 
 -   ACLED tracks conflict events around the world, and here we use the Israel Defense Force airstrikes and ground operations in Gaza since October 2023. The data is provided in a downloadable .csv containing date and type of conflict and the actors involved.
 
 -   Both of these external data source and the Airwars incidents are aggregated at the daily level so that we can join them together.
 
-[^1]: Note. Confidence is low to moderate since the data comes from the Hamas MoH.
+[^4]: Note. Confidence is low to moderate since the data comes from the Hamas MoH.
