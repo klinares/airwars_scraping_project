@@ -1,9 +1,22 @@
 ---
-title: "Social Media Analysis of Conflict in Gaza Reveals Crumbling Infrastructure, High Death Toll"
+title: |
+  <br>
+
+  "Social Media Analysis of Conflict in Gaza Reveals Crumbling Infrastructure, High Death Toll"
+  
+  <br>
+  <br>
+  <br>
+  <br>
+  <br>
+  <br>
+   
 author: Kevin Linares
 date: "`r format(Sys.time(), '%d %B, %Y')`"
 embed-resources: true
 editor: visual
+title-block-banner-color: "darkred"
+title-block-banner: /home/kevin/repos/airwars_scraping_project/code/images/unicef_gaza_crisis.png
 execute:
   warning: false
   message: false
@@ -14,6 +27,20 @@ theme: spacelab
 toc: true
 toc-depth: 2
 ---
+
+```{css, echo=FALSE}
+.title {
+  font-size: 40px;
+  font-family: "Helvetica Neue";
+}
+```
+
+On October 7, 2023, Hamas and other Palestinian armed groups orchestrated a deadly attack on Israel. The horrific attack killed 1,200 people, with over 200 hostages seized and over 100 still unaccounted for. Israeli forces began airstrikes and ground operations in response
+
+-   The ongoing conflict has devastated the civilian population of Gaza. Seventy five percent of the population of Gaza has been displaced, most multiple times, and the entire population is in need of humanitarian assistance. The ongoing conflict, bombardment and blockade has led to catastrophic humanitarian suffering for more than 2 million Palestinians---half of them children---who are now without clean water, food and vital medical services.
+-   Since the beginning of the war in October 7th, 2023, Airwars has monitored open source civilian harm incidents in Gaza. Incident is defined as an explosive weapon or ground battle operation that produced civilian casualties or harm. Civilian status of victims is assumed unless there is information determining their militant status. Data is derived from tweets or Facebook postings, translated from Arabic-to-English and when names are provided they are counted as a casualty. These names are corroborated with the Hamas MoH when they are released. All data is presented on their website, and each incident has its own web-page.
+
+### Aim of Study
 
 ***The ongoing Gaza-Israel conflict is likely to persist in 2025 threatening to destabilize the region---while affecting the well being of children and women---and the strategic utilization of open-source data can empower policymakers to mitigate humanitarian challenges in the region.*** Gaza's death toll estimates at over 43,000, with children and women representing a sizable proportion, as reported by the Hamas' Ministry of Health (MoH), yet it cannot be corroborated by outside organizations. [Airwars](https://airwars.org/conflict/israel-and-gaza-2023/), an NGO, has scrapped social media platforms since October 2023 from users posting details about the death of friends, family, and neighbors. We aim to use the Airwars' Gaza conflict tracker to assess to what extent can open-source data be used to identify patterns in the targeting of civilian infrastructure as well as approximate official casualty estimates?
 
@@ -28,7 +55,11 @@ toc-depth: 2
 ### We will use the following packages and project code can be found in our [github](https://github.com/klinares/airwars_scraping_project) repository. Additionally we used the text, data.table, and jsonlite packages.
 
 ```{r}
-pacman::p_load(lubridate, RSQLite, knitr, DBI, tidyverse)
+pacman::p_load(lubridate, RSQLite, knitr, DBI, ggthemes, parallel, brms, ggdist, viridis, tidyverse)
+
+
+num_cores <- parallel::detectCores()
+options(mc.cores = num_cores)
 ```
 
 \
@@ -41,8 +72,9 @@ pacman::p_load(lubridate, RSQLite, knitr, DBI, tidyverse)
 
 ```{r}
 # connect to database
-mydb <- dbConnect(RSQLite::SQLite(), 
-                  "~/repos/airwars_scraping_project/database/airwars_db.sqlite")
+mydb <- dbConnect(
+  RSQLite::SQLite(), 
+  "~/repos/airwars_scraping_project/database/airwars_db.sqlite")
 ```
 
 \
@@ -73,7 +105,7 @@ tbl(mydb, "airwars_meta") |>
 
 \
 
--   [Assessment table:]{style="color: forestgreen"}[ ]{style="color"}Using the web-urls we built in the metadata table, we loop through them and scrape each url to parse incident assessments as seen below.
+-   [Assessment table:]{style="color: forestgreen"}Using the web-urls we built in the metadata table, we loop through them and scrape each url to parse incident assessments as seen below.
 
 -   [Sentiment analysis.]{style="color:darkorange"} After attempting several text classification models and some question/context model we landed on[j-hartmann/emotion-english-distilroberta-base](https://huggingface.co/j-hartmann/emotion-english-distilroberta-base?text=Oh+wow.+I+didn%27t+know+that.) because it goes beyond just a positive/negative evaluation but analysis text for Ekman's 6 basic emotions that is common in psychological work on emotions.Moreover, this model affords us the ability to examine the emotion tone over time for these assessments.[^1]
 
@@ -82,8 +114,6 @@ tbl(mydb, "airwars_meta") |>
     -   The model is trained on a balanced subset from the datasets listed above (2,811 observations per emotion, i.e., nearly 20k observations in total). 80% of this balanced subset is used for training and 20% for evaluation. The evaluation accuracy is 66% (vs. the random-chance baseline of 1/7 = 14%).
 
     -   Given that we have over 800 assessments we decided to use [text](https://r-text.org/)[^2] while it allows us the ability to use a laptop GPU (GTX 4070)[^3] to process these models for each incident. This resulted in large processing gains reducing text analysis from two hours to 10 minutes.
-
-    -   
 
 [^1]:
     -   The model is trained on a balanced subset from the datasets listed above (2,811 observations per emotion, i.e., nearly 20k observations in total). 80% of this balanced subset is used for training and 20% for evaluation. The evaluation accuracy is 66% (vs. the random-chance baseline of 1/7 = 14%).
@@ -97,9 +127,13 @@ assessment <- tbl(mydb, "airwars_assessment") |>
   as_tibble() |> 
   slice_sample(n=1) 
 
-str_extract(assessment$assessment,"^.{1000}") |> kable(col.names = "Assessment") 
+str_extract(assessment$assessment,"^.{1000}") |> 
+  kable(col.names = "Assessment") 
 
-assessment |> select(-assessment) |> kable()
+assessment |> 
+  select(-assessment) |> 
+  mutate(across(where(is.double), ~ round(.x, 3))) |> 
+  kable()
 
 ```
 
@@ -121,8 +155,8 @@ tbl(mydb, "airwars_coord") |>
 -   [Incidence table:]{style="color: forestgreen"} Our final table contains the fields that Airwars populates for each incident. Besides parsing this information we also had to process the data, specifically, there are fields that contain ranges of kills (i.e., 3-5) or counts (i.e., 1 child, 3 women, 1 man) which we had to strip these strings into their own columns. This allows us to estimate how many children and women have been reported as civilian casualties. Our data contains 24 variables with 804 incidents reported by Airwars.
 
 ```{r}
-tbl(mydb, "airwars_incidents") |> 
-  as_tibble() |> 
+ tbl(mydb, "airwars_incidents") |> 
+  as_tibble()  |> 
   glimpse()
 ```
 
@@ -132,18 +166,95 @@ tbl(mydb, "airwars_incidents") |>
 
 \
 
+#### [Palestine Dataset](https://data.techforpalestine.org/) published daily Gaza casualty counts in a downloadable .csv file that they take from the Hamas MoH; however, they do not make a distinction whether a casualty was a civilian or militant so their numbers should be higher than what we derive from Airwars.[^4]
+
+[^4]: Note. Confidence is low to moderate since the data comes from the Hamas MoH.
+
+-   We download the CSV datafile and conduct mutations of new variables to get cumulative casualty counts for children and women.
+
+```{r}
+tbl(mydb, "daily_casualties") |> 
+  as_tibble() |> 
+  mutate(ext_killed_men_cum = ext_killed_cum - 
+           (ext_killed_children_cum + ext_killed_women_cum),
+         Incident_Date = lubridate::as_date(Incident_Date)) |> 
+  select(Incident_Date, ext_killed_men_cum, 
+         ext_killed_women_cum, ext_killed_children_cum) |> 
+  pivot_longer(-Incident_Date) |> 
+  mutate(cumulative_casualties = case_when(
+    name == "ext_killed_men_cum" ~ "Men",
+    name == "ext_killed_women_cum" ~ "Women",
+    name == "ext_killed_children_cum" ~ "Children"
+  ),
+    name = factor(cumulative_casualties, 
+                       levels=c("Children", 
+                                "Women", 
+                                "Men" ))) |> 
+  ggplot(aes(x=Incident_Date, y=value, fill=cumulative_casualties)) +
+  geom_area(position = "stack") +
+  ylab("Casualties") +
+  xlab("") +
+  guides(fill=guide_legend(title="Cumulative Casualties")) +
+  scale_fill_viridis_d(option="E" ,alpha=.75, begin=.20) +
+  theme_hc()
+
+```
+
 \
-
-## 
-
-## Appendix. Details on the data used for this project. {.appendix}
-
-Since the beginning of the war in October 7th, 2023, Airwars has monitored open source civilian harm incidents in Gaza. Incident is defined as an explosive weapon or ground battle operation that produced civilian casualties or harm. Civilian status of victims is assumed unless there is information determining their militant status. Data is derived from tweets or Facebook postings, translated from Arabic-to-English and when names are provided they are counted as a casualty. These names are corroborated with the Hamas MoH when they are released. All data is presented on their website, and each incident has its own web-page.
-
--   [Palestine Dataset](https://data.techforpalestine.org/) published daily Gaza casualty counts in a downloadable .csv file that they take from the Hamas MoH; however, they do not make a distinction whether a casualty was a civilian or militant so their numbers should be higher than what we derive from Airwars.[^4]
 
 -   ACLED tracks conflict events around the world, and here we use the Israel Defense Force airstrikes and ground operations in Gaza since October 2023. The data is provided in a downloadable .csv containing date and type of conflict and the actors involved.
 
--   Both of these external data source and the Airwars incidents are aggregated at the daily level so that we can join them together.
+    -   We only examine events where Israel forces are the aggressors in Gaza and use attacks on civilians classified as attacks, air/drone strike,and shelling/artillery/missile attack, resulting in almost 6,000 incidents since October 2023.\
 
-[^4]: Note. Confidence is low to moderate since the data comes from the Hamas MoH.
+```{r}
+daily_conflict <- tbl(mydb, "daily_conflict") |> 
+  as_tibble() |> 
+  # filter events as Israel forces as the aggresor
+  filter(actor1 == "Military Forces of Israel (2022-)") |> 
+  mutate(Incident_Date = lubridate::as_date(Incident_Date)) 
+
+daily_conflict |> 
+  group_by(event_type, sub_event_type) |> 
+  count() |> 
+  ungroup() |> 
+  mutate(proportion_incidents = round(n/sum(n), 2)) |> 
+  kable()
+```
+
+## 
+
+```{r}
+
+daily_conflict |> 
+  group_by(Incident_Date) |> 
+  #filter(sub_event_type == "Air/drone strike") |> 
+  reframe(drone_strikes = n(),
+          fatality_daily_count = sum(fatalities)) |> 
+  #mutate(daily_fatalities_avg = zoo::rollmean(daily_fatalities, k = 1, fill = NA))  |> 
+  ggplot() +
+  geom_line( aes(x=Incident_Date, y=drone_strikes), stat="identity", fill="cyan",colour="#006000", size=2) +
+  geom_line(aes(x=Incident_Date, y=fatality_daily_count),stat="identity",color="red",size=1)+ 
+  #labs(subtitle  = "Rolling 7 day average for fatalities") +
+  scale_color_viridis_d(option="D", end = .80) + 
+  scale_y_continuous(sec.axis=sec_axis(~.,name="Attacks"))  +
+  theme_hc()
+  
+```
+
+```{r}
+
+daily_conflict |> 
+  group_by(Incident_Date) |> 
+  #filter(sub_event_type == "Air/drone strike") |> 
+  reframe(drone_strikes = n(),
+          fatality_daily_count = sum(fatalities)) |> 
+  #mutate(drone_strikes = cumsum(drone_strikes),
+        # fatality_daily_count = cumsum(fatality_daily_count)) |> 
+  #mutate(daily_fatalities_avg = zoo::rollmean(daily_fatalities, k = 1, fill = NA))  |> 
+  ggplot() +
+  geom_area( aes(x=Incident_Date, y=drone_strikes), stat="identity", fill="cyan",colour="#006000") +
+  geom_line(aes(x=Incident_Date, y=fatality_daily_count),stat="identity",color="red",size=1)+ 
+  #labs(subtitle  = "Rolling 7 day average for fatalities") +
+  scale_color_viridis_d(option="D", end = .80) + 
+  theme_hc()
+```
