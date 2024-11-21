@@ -2,7 +2,12 @@
 # ___ Functions for scraping incidents from airwars & process into database ____
 # ______________________________________________________________________________
 
-options(scipen=999)
+options(scipen=999,
+        future.globals.onReference = "error",
+        future.globals.onReference = "warning")
+
+
+
 
 
 scrape_metadata_fun <- function(website){
@@ -26,17 +31,55 @@ scrape_metadata_fun <- function(website){
            Incident_Date = str_remove(Incident_Date, ","),
            Incident_Date = str_replace_all(Incident_Date, " ", "-"),
            link = glue(
-             "https://airwars.org/civilian-casualties/{Incident_id}-{Incident_Date}/")) 
+             "https://airwars.org/civilian-casualties/{Incident_id}-{Incident_Date}/"))
+}
+
+
+
+# Check if web url page is saved, download if not
+## save to github folder path
+read_html_write_folder_fun <- function(meta_list, save_path){
+  file_names = list.files(save_path) |> 
+    as_tibble() |> 
+    rename(Incident_id=1)
   
+  if(file_names |> filter(Incident_id %in% meta_list[[2]]) |> nrow() == 0 ) {
+    
+    print("Reading URL file")
+    write_html(read_html(meta_list[[3]]), # html content
+               str_c(save_path, 
+                     str_c(meta_list[[2]], # id number
+                           ".html"))
+    )
+    
+  } else{
+    print("Skipping, ULR already in folder.")
+  }
+}
+  
+
+
+
+# Read in URL web pages to process
+read_url_fun <- function(file_path_name){
+  file_names = list.files(file_path_name)
+  
+  incident_content_test <- map(file_names, function(x){
+    
+    file_path = str_c(file_path_name, x)
+    file_name = str_remove(x, ".html")
+    
+    dat_list = list(file_name, read_html(file_path)
+    ) 
+    return(dat_list)
+  })
 }
 
 
 
 
-
-
+# parse assessment description text
 pull_assessment_fun <- function(web_content){
-  
   
   tibble(
     # attach incident id number
