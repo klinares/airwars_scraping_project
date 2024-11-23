@@ -36,25 +36,17 @@ scrape_metadata_fun <- function(website){
 
 
 
-# Check if web url page is saved, download if not
-## save to github folder path
+# Download each weburl and save
 read_html_write_folder_fun <- function(meta_list, save_path){
-  file_names = list.files(save_path) |> 
-    as_tibble() |> 
-    rename(Incident_id=1)
-  
-  if(file_names |> filter(Incident_id %in% meta_list[[2]]) |> nrow() == 0 ) {
     
-    print("Reading URL file")
+    print(str_c("Reading URL file", " . . . for ", meta_list[[2]], 
+                "event occured on ", meta_list[[1]]) )
+  
     write_html(read_html(meta_list[[3]]), # html content
                str_c(save_path, 
                      str_c(meta_list[[2]], # id number
                            ".html"))
     )
-    
-  } else{
-    print("Skipping, ULR already in folder.")
-  }
 }
   
 
@@ -114,21 +106,6 @@ sentiment_score_fun <- function(incident_assessment){
 
 
 
-attack_location_fun <- function(incident_assessment){
-  
-  description = incident_assessment
-  
-  # use huggingface model to detect emotional tone of summary
-  mod = 
-    textQA(question = "Where was the location of the attack?",
-           context = description,
-                 model = "deepset/roberta-base-squad2", 
-                 device = "gpu")$answer
-}
-
-
-
-
 # reverse coordinates
 pull_coords_fun <- function(web_content){
   
@@ -143,50 +120,28 @@ pull_coords_fun <- function(web_content){
       as_tibble() |> 
       separate(value, into=c("incident_lat", "incident_long"), sep=", ") |> 
       slice(1)
-
-  } else{
-    dat = tibble(incident_lat=NA, incident_long=NA)
-  }
-  
-  return(dat)
-}
-
-
-
-
-# find location from text search 
-find_location_coord_fun <- function(location_found){
-  
-  # clean the string before creating URL
-  location_attack = str_replace_all(location_found, "’", "%60")
-  location_attack = str_remove_all(location_found, "\\(|Education|Kinda|\\)")
-  location_attack = str_replace_all(location_found, " ", "+")
-  
-  
-  nominatim_request = tryCatch(
-    fromJSON(
-      glue(
-        "https://nominatim.openstreetmap.org/search?addressdetails=1&q={location_attack}&format=jsonv2&limit=1")
-      ), 
-    error = function(e) {return(NA)} )
-  
-  if(length(nominatim_request) < 2){
     
-    dat = tibble(lat = NA, long = NA, 
-                 lat_min=NA, lat_max=NA, long_min=NA, long_max=NA)
+    # hit the nominatim api
+    nominatim_request =
+      fromJSON(glue(
+          "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat={dat$incident_lat}&lon={dat$incident_long}")
+      )
+    
+    dat = dat |> 
+      add_column(
+      target_type = nominatim_request$type,
+      target_address_type  = nominatim_request$addresstype,
+      nominatim_request$boundingbox |> 
+        as_tibble() |> 
+        data.table::transpose() |> 
+        rename(lat_min=1, lat_max=2, long_min=3, long_max=4)
+    )
+
   } else{
-      
-      dat = tibble(
-        lat = nominatim_request$lat[[1]],
-        long = nominatim_request$lon[[1]],
-      ) |> 
-        add_column(
-          nominatim_request$boundingbox[[1]] |> 
-            as_tibble() |> 
-            data.table::transpose() |> 
-            rename(lat_min=1, lat_max=2, long_min=3, long_max=4)
-        )
-  } 
+    dat = tibble(incident_lat=NA, incident_long=NA,
+                 target_type = NA,  target_address_type = NA,  
+                 lat_min=NA, lat_max=NA, long_min=NA, long_max=NA)
+  }
   
   # convert bbox diagonal distance
   dat = dat |> 
@@ -194,10 +149,7 @@ find_location_coord_fun <- function(location_found){
     mutate(lat_min = as.numeric(lat_min),
            lat_max = as.numeric(lat_max),
            long_min = as.numeric(long_min),
-           long_max = as.numeric(long_max),
-           bbox_dist = as.vector(distm(
-             c(long_min, lat_min), c(long_max, lat_max), 
-             fun = distHaversine)) )
+           long_max = as.numeric(long_max))
   
   return(dat)
 }
@@ -207,6 +159,7 @@ find_location_coord_fun <- function(location_found){
 
 
 
+# parse incident data from Airwars web page
 pull_incident_fun <- function(web_content){
   
   # read in summary fields

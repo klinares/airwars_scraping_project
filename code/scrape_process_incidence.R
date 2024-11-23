@@ -5,7 +5,6 @@
 source("~/repos/airwars_scraping_project/code/helpful_functions.R")
 
 pacman::p_load(rvest, lubridate, RSQLite, DBI, text, geosphere, xml2,
-               furrr, parallel,
                tictoc, glue, jsonlite, tidyverse, data.table)
 
 
@@ -36,16 +35,14 @@ airwars_meta <- airwars_meta |>
 
 
 folder_path <- "~/repos/airwars_scraping_project/database/webpages/"
-
-# 1. download URL webpages
-## 1st, if URL is not already saved, download and save to github folder
+# 1. download URL webpages, and save locally
 map(airwars_meta_list, function(x){
   # read web pages, write each to github
   read_html_write_folder_fun(x, folder_path)
 })
 
 ## 2nd, read into a list available URL pages saved in the github folder
-incident_content <- read_save_url_fun(folder_path)
+incident_content <- read_url_fun(folder_path)
 
 
 
@@ -58,12 +55,10 @@ airwars_incidents <- map_dfr(incident_content, function(x){
   # parse out summary of event
   pull_assessment_fun(x) |> 
     as_tibble() |> 
-    mutate(sentiment_score_fun(assessment),
-           attack_location = attack_location_fun(assessment),
-           pull_coords_fun(x),
-           find_location_coord_fun(attack_location),
-           pull_incident_fun(x) 
-    )
+    mutate(sentiment_score_fun(assessment)) |> 
+    add_column(
+      pull_incident_fun(x) ,
+      pull_coords_fun(x))
 }) |> 
   # we need to extract number killed by men, women, children
   mutate(children_killed = as.integer(
@@ -78,20 +73,22 @@ airwars_incidents <- map_dfr(incident_content, function(x){
 
 
 # 3. process casualty daily deaths from https://data.techforpalestine.org/docs/casualties-daily/
-daily_casualties <- read_csv(
-  "~/repos/airwars_scraping_project/raw_data/casualties_daily_gaza.csv") |> 
-  select(
-    report_date, ext_killed, ext_killed_cum, 
-    ext_killed_children_cum, ext_killed_women_cum) |> 
-  # we need to create a lag count for children and women
-  mutate(ext_killed_children = 
-           ext_killed_children_cum - lag(ext_killed_children_cum),
-         ext_killed_women = 
-           ext_killed_women_cum - lag(ext_killed_women_cum)) |> 
-  # convert first rows to 0.
-  mutate_at(c(6:7), ~replace_na(., 0)) |> 
-  rename(Incident_Date = report_date)
+daily_casualties_api <- "https://data.techforpalestine.org/api/v2/casualties_daily.min.json"
 
+daily_casualties <- fromJSON(daily_casualties_api) |> 
+  as_tibble() |> 
+  select(report_date, ext_killed_children_cum, ext_killed_women_cum,  ext_killed_cum) |> 
+  pivot_longer(-report_date) |> 
+  mutate(name = case_when(
+    str_detect(name, "children") ~ "Children",
+    str_detect(name, "women") ~ "Women",
+    str_detect(name, "killed_cum") ~ "Total"),
+    name = factor(name, 
+                  levels=c("Total", 
+                           "Children", 
+                           "Women"))
+  ) |> 
+  rename(Incident_Date = report_date)
 
 
 #____________________________ END _________________________________
