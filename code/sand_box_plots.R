@@ -1,6 +1,7 @@
 
-pacman::p_load(lubridate, RSQLite, knitr, DBI, ggthemes, zoo, hrbrthemes, 
-               geosphere, ggdark, janitor,  jsonlite, viridis, tidyverse)
+pacman::p_load(lubridate, RSQLite, DBI, zoo, ggthemes, 
+               factoextra, gridExtra, ggsci, ggmap,
+               ggdark, janitor,  jsonlite, viridis, tidyverse)
 
 options(scipen=999)
 
@@ -11,7 +12,6 @@ mydb <- dbConnect(
 
 
 # read in data tables
-
 airwars_meta <- tbl(mydb, "airwars_meta") |> 
   as_tibble() |> 
   # convert Incident_Date to date format
@@ -23,7 +23,10 @@ airwars_incidents <- tbl(mydb, "airwars_incidents") |>
   as_tibble() |> 
   clean_names() |> 
   # convert NA to 0
-  mutate(killed = ifelse(is.na(killed), 0, killed)) |> 
+  mutate(killed = ifelse(is.na(killed), 0, killed),
+         injured = str_remove(civilians_reported_injured, ".*–"),
+         injured = ifelse(is.na(injured), 0, injured),
+         injured = as.numeric(injured)) |> 
   rename(Incident_id = incident_id) |> 
   # add dates
   left_join(airwars_meta |> select(Incident_id, Incident_Date))
@@ -94,7 +97,7 @@ incidents_cum |>
 # total percent kill
 incidents_cum |> 
   group_by(data_source) |> 
-  filter(Incident_Date == "2024-08-28") |> 
+  filter(Incident_Date == max(Incident_Date)) |> 
   pivot_wider(names_from = name, values_from=value) |> 
   mutate(Children = Children/Total,
          Women = Women/Total) |> 
@@ -102,7 +105,6 @@ incidents_cum |>
   pivot_longer(-c("Incident_Date", "data_source")) |> 
   ggplot(aes(x=data_source, y=value, fill=name, label=value)) +
   geom_bar(position="stack", stat="identity") +
-  #facet_wrap(~data_source, scales = "free") +
   ylab("Casualties") +
   xlab("") +
   scale_y_continuous(labels = scales::percent) +
@@ -119,33 +121,41 @@ incidents_cum |>
 
 # estimate monthly casualty rate
 incidents_cum |> 
-  filter(data_source == "Airwars") |> 
+  #filter(data_source == "Airwars") |> 
   mutate(Incident_month = as.yearmon(Incident_Date)) |> 
   pivot_wider(names_from=name, values_from=value) |> 
+  mutate(Children = Children /Total,
+         Women = Women/Total) |> 
+  rename(Men=Total) |> 
   # create a variable for males
-  mutate(Men = Total - (Children + Women)) |> 
-  select(Incident_month, Children, Women, Men) |> 
-  pivot_longer(-Incident_month) |> 
-  group_by(Incident_month, name) |> 
-  reframe(monthly_casualties = max(value)) |> 
+  #mutate(Men = Total - (Children + Women)) |> 
+  select(data_source, Incident_month, Children, Women, Men) |> 
+  pivot_longer(-c("Incident_month", "data_source")) |> 
+  group_by(data_source, Incident_month, name) |> 
+  reframe(casualty = max(value)) |> 
   left_join(pop_data) |> 
   # create casualty rate
   # (total casualties / total population) x 100
-  mutate(casualty_rate = (monthly_casualties/pop) * 100,
-         name = fct_reorder(name, casualty_rate, .fun = min)) |> 
-  ggplot(aes(x=Incident_month, y=casualty_rate, fill=name)) +
-  geom_col(position="dodge", stat="identity") +
-  geom_smooth(aes(color=name), method="loess", se=FALSE,
-              show.legend = FALSE) +
+  group_by(data_source, Incident_month) |> 
+  mutate(adjusted_casualty = casualty* (pop/sum(pop))) |> 
+  filter(name!= "Men") |> 
+  select(-pop) |> 
+  pivot_longer(-c("data_source", "Incident_month", "name"), names_to = "estimate") |> 
+  mutate(estimate = relevel(
+    factor(estimate), ref="casualty") ) |> 
+  ggplot(aes(x=Incident_month, y=value, fill=name)) +
+  geom_bar(position="stack", stat="identity") +
   ylab("Casualty Rate") +
   xlab("") +
+  scale_y_continuous(labels = scales::percent) +
+  facet_grid(rows=vars(data_source), cols=vars(estimate)) +
   guides(fill=guide_legend(title="")) +
   scale_fill_viridis_d(option="cividis", direction = -1,
                        alpha=.80, end =.70, begin=.15) +
   scale_color_viridis_d(option="cividis", direction = -1,
                        alpha=.80, end =.70, begin=.15) +
   dark_theme_linedraw() +
-  theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust=1, size=14),
+  theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust=1, size=12),
         legend.position="top") 
 
 
@@ -174,7 +184,7 @@ incidents_cum |>
                        alpha=.80, end =.70, begin=.15) +
   dark_theme_linedraw() +
   theme(legend.position="top",
-        text = element_text(size = 16)) 
+        text = element_text(size = 14)) 
 
 
 
@@ -182,16 +192,35 @@ incidents_cum |>
 
 # ______________________________ other features of attacks _________________________
 
-# Are children and women disproportionately killed by strike_type
-# subset incidents where at least 1 child was killed
 
 
+
+# sentiment analysis plot
+airwars_incidents |> 
+  select(Incident_Date, anger:surprise) |> 
+  group_by(Incident_Date) |> 
+  reframe(across(where(is.double), ~ mean(.x))) |> 
+  pivot_longer(-Incident_Date) |> 
+  mutate(name = fct_reorder(name, value, .fun=mean)) |> 
+  ggplot(aes(x=Incident_Date, y=value , color= name)) +
+  geom_smooth(size=2) +
+  guides(color=guide_legend(title="", reverse = TRUE)) +
+  #facet_grid(~name) +
+  scale_color_viridis_d(option="mako", direction = 1,
+                        alpha=.99, end =.99, begin=.35) +
+  dark_theme_linedraw() +
+  theme(text = element_text(size = 12))
+
+
+
+
+# subset out geographic data
 airwars_incidents_coord <- airwars_incidents |>
   filter(!is.na(incident_lat), # filter data with 
     !is.na(strike_type)#, strike_type != "Airstrike"
   ) |> 
-  mutate(incident_lat = as.integer(incident_lat),
-         incident_long = as.integer(incident_long),
+  mutate(incident_lat = as.numeric(incident_lat),
+         incident_long = as.numeric(incident_long),
     children_killed = ifelse(is.na(children_killed), 0, children_killed),
          women_killed = ifelse(is.na(women_killed), 0, women_killed),
          
@@ -224,126 +253,71 @@ airwars_incidents_coord <- airwars_incidents |>
          ) 
 
 
-dispro_killed_fun <- function(dat, var_name){
+
+
+
+# examining geographic data through hierarchical clusters
+
+
+# drop NA, select variables of interest and scale
+hclust_data <- airwars_incidents_coord |> 
+  select( injured, killed,
+         anger:surprise, -joy, 
+         incident_lat, incident_long) |> 
+  drop_na() |> 
+  mutate_all(scale)
+
+# create distance matrix
+hclust_d <- dist(hclust_data)
+
+# conduct clustering
+hc_ward <- hclust(hclust_d, method = "ward.D2")
+
+dend_plot_fun <- function(mod, k_num) {
   
-  dat |> 
-    group_by_at(var_name) |> 
-    reframe(
-      # sum strike types
-      type_count = n(),
-      # count child deaths by strike type
-      children_women_killed = sum(children_killed + women_killed),
-      # count total killed by strike type
-      killed_count = sum(killed)
-    ) |> 
-    mutate(
-      # compute strike type occurrences by overall events
-      type_wt = type_count/sum(type_count),
-      # compute proportion of children killed by strike types
-      childern_women_killed_prop = children_women_killed/killed_count
-    ) |> 
-    # weight death rate by proportion of strike type
-    mutate(child_death_rate_weighted = childern_women_killed_prop*type_wt)
+  fviz_dend(mod, k=k_num, 
+            lwd = 0.8, , k_colors = "npg", rect = TRUE, rect_border = "npg", 
+            rect_fill = TRUE, show_labels = FALSE, cex = 0.75,  # label size
+            #c("#2E9FDF", "#00AFBB", "#E7B800", "#FC4E07"),
+            color_labels_by_k = TRUE,  # color labels by groups
+            ggtheme = dark_theme_linedraw(), 
+            main = str_c("Cluster Dendrogram k = ", k_num)
+  )
 }
 
 
-dispro_killed_fun(airwars_incidents_coord, "strike_type")
-dispro_killed_fun(airwars_incidents_coord, "target_type") 
+plot_list <- map(2:7, function(x){
+  dend_plot_fun(hc_ward, x)
+}) 
+  
+
+# plot dendogram for each cluster 
+do.call("grid.arrange", 
+        c(plot_list, ncol =
+            floor(sqrt( length(plot_list)) ) 
+          )
+        )
+
+# examine cluster assignment proportion
+## choose k-clusters to compare
+map(2:4, function(x){
+  factor(cutree(hc_ward, x)) |> 
+    as_tibble() |> 
+    rename(cluster=1) |> 
+    count(cluster) |> 
+    mutate(prop = n/sum(n))
+}) 
 
 
-
-
-
-
-# examining geographic data
-
-
-
-# compute boundary box area size
+# now add optimal cluster back to the table
 airwars_incidents_coord <- airwars_incidents_coord |> 
-  rowwise() |> 
-  mutate(bbox_area = distm(c(long_min, lat_min), c(long_max, lat_min), fun=distHaversine) +
-              distm(c(long_max, lat_min), c(long_max, lat_max), fun=distHaversine) +
-              distm(c(long_max, lat_max), c(long_min, lat_max), fun=distHaversine) +
-              distm(c(long_min, lat_max), c(long_min, lat_min), fun=distHaversine),
-         bbox_area = as.numeric(bbox_area)
-  ) |> ungroup()
+  mutate(cluster = factor(factor(cutree(hc_ward, 3))))
 
 
 
 
-
-
-
-# sentiment analysis
-airwars_incidents |> 
-  select(anger:surprise, children_killed, women_killed, killed) |> 
-  mutate(children_killed = replace_na(children_killed, 0),
-         women_killed = replace_na(women_killed, 0),
-         men_killed = killed - (children_killed + women_killed)
-  ) |> 
-  select(-killed) |> 
-  pivot_longer(-c("anger", "disgust", "fear", "joy", "neutral", "sadness", "surprise")) |> 
-  #filter(value > 0) |> 
-  ggplot(aes(x=value, y=sadness , color= name)) +
-  geom_point(size=2) +
-  guides(color=guide_legend(title="")) +
-  scale_color_viridis_d(option="turbo", direction = -1,
-                       alpha=.80, end =.70, begin=.15) +
-  dark_theme_linedraw() +
-  theme(text = element_text(size = 16))
-
-
-
-
-
-library(factoextra)
-
-
-
-
-acs_il_t_kmeans_dat  <- airwars_incidents_coord |> 
-  select(killed, anger:surprise, incident_lat, incident_long) |> 
-  drop_na() 
-
-
-fviz_nbclust(acs_il_t_kmeans_dat, #data set we want to use
-             kmeans, #cluster method
-             #method for estimating the optimal number of clusters
-             method = "wss", 
-             k.max = 20, iter.max=200)
-
-km_1 <- kmeans(acs_il_t_kmeans_dat, 4, nstart = 20)
-km_1
-
-
-# add cluster to the dataset
-acs_il_t_kmeans_dat <- acs_il_t_kmeans_dat |> 
-  # add the cluster assignment
-  mutate(cluster = factor(km_1$cluster)) |> 
-  # we do not have to do much processign to join b/c
-  ## missing values were on the variables we used for clustering
-  ### so they are accounted for before the join
-  left_join(airwars_incidents_coord)
-
-
-acs_il_t_kmeans_dat |> 
-  group_by(cluster) |> 
-  reframe(mean(children_killed), mean(women_killed)) |> 
-  pivot_longer(-cluster) |> 
-  ggplot(aes(x=cluster, y=value, fill=cluster)) +
-  geom_bar(stat="identity", width=.5, position = "dodge") +
-  facet_wrap(~name, scales = "free") +
-  theme_hc() +
-  ylab("") +
-  scale_fill_viridis_d(option="rocket", 
-                       direction = -1, end=.90, alpha=.75) 
-
-
-
-
-
-acs_il_t_kmeans_dat |> 
+# plot cluster with averages
+airwars_incidents_coord |> 
   mutate(school = ifelse(target_type == "school", 1, 0),
          hospital = ifelse(target_type == "hospital", 1, 0),
          place_of_worship = ifelse(target_type == "place_of_worship", 1, 0),
@@ -353,7 +327,8 @@ acs_il_t_kmeans_dat |>
   ) |> 
   group_by(cluster) |> 
   reframe(mean(sadness), mean(fear), mean(disgust), mean(anger), 
-          mean(killed), mean(children_killed), mean(women_killed),
+          mean(neutral), mean(surprise), mean(killed), mean(injured),
+          mean(children_killed), mean(women_killed),
           mean(school), mean(hospital), mean(place_of_worship),
           mean(refugee_camp), mean(Airstrike), mean(Artillery)) |> 
   pivot_longer(-cluster) |> 
@@ -362,8 +337,62 @@ acs_il_t_kmeans_dat |>
   facet_wrap(~name, scales = "free") +
   theme_hc() +
   ylab("") +
-  scale_fill_viridis_d(option="rocket", 
-                       direction = -1, end=.90, alpha=.75) 
+  xlab("") +
+  guides(fill=guide_legend(title="Clusters")) +
+  scale_fill_viridis_d(option="magma", 
+                       direction = -1, end=.90, begin=.30, alpha=.80) +
+  dark_theme_linedraw() +
+  theme(legend.position="top",
+        text = element_text(size = 14)) 
+
+
+
+
+
+
+# plot the clusters on a map
+
+cs_key <- read_csv("~/repos/api-keys.csv") |> 
+  filter(key_id == "Google_key") |> 
+  pull(key)
+
+
+register_google(key = cs_key, write = TRUE)
+
+
+gaza_map <- get_googlemap(center = c(lon = 34.3900, lat = 31.4100),  #"Gaza Strip", 
+                          maptype = "hybrid",  #size = c(800, 650),
+                          zoom=11) 
+
+
+gaza_map |> 
+  ggmap() + 
+  stat_density2d(data = airwars_incidents_coord, 
+                 aes(x = incident_long, y = incident_lat,
+                     fill = cluster, alpha = ..level..), 
+                 size = 1, bins = 20, geom = 'polygon') +
+  scale_alpha(range = c(.05, .35), guide = FALSE) +
+  geom_point(aes(x = incident_long, y = incident_lat , 
+                 color=cluster, size=children_killed), 
+             data=airwars_incidents_coord) +
+  scale_color_viridis_d() + 
+  scale_fill_viridis_d() +
+  dark_theme_linedraw() +
+  theme(legend.position="top",
+        text = element_text(size = 14))
+  
+
+  
+
+
+
+
+
+
+
+
+
+
 
 
 
