@@ -1,10 +1,15 @@
 ---
-title: 
-  Text Analysis of the Conflcit in Gaza Reveals the Civilian Impact
+title: |
 
+  <br>
+  <br>
+   <br>
+    <br>
+     <br>
+
+  Text Analysis of the Conflict in Gaza Reveals the Civilian Impact
   
-author: Kevin Linares (https://github.com/klinares/airwars_scraping_project)
-date: "`r format(Sys.time(), '%d %B, %Y')`"
+author: Kevin Linares  (https://github.com/klinares/airwars_scraping_project)
 embed-resources: true
 editor: visual
 format:
@@ -97,13 +102,13 @@ pop_data <- rbind(Total, Children, Men, Women) |>
 
 ::::: columns
 ::: {.column width="60%" style="font-size: 36px"}
--   **Background**: 10/7/2023, Hamas attacks Israel, killing 1,200 people, Israel retaliates. Estimated killed \~44,000.
+-   **Background**: 10/7/2023 Hamas attacks Israel killing 1,200 people, Israel retaliates. Estimated dead \~44,000.
 
 -   **Problem**: Hamas Ministry of Health (MoH) reports casualties, cannot be corroborated.
 
 -   **Claim**: "Women & children disproportionately killed" [UN-OHCHR](https://www.ohchr.org/en/press-releases/2024/05/onslaught-violence-against-women-and-children-gaza-unacceptable-un-experts)
 
--   **Research Questions**: To what extent can open-source data be used to identify patterns in the targeting of Palestinian civilians in Gaza?
+-   **Research Question**: To what extent can open-source data be used to identify patterns in the targeting of Palestinian civilians in Gaza?
 :::
 
 ::: {.column width="40%" style="width: 600px"}
@@ -114,44 +119,38 @@ pop_data <- rbind(Total, Children, Men, Women) |>
 ```{css, echo=FALSE}
 
 .title {
-  font-size: 75px !important;
-  color: honeydew !important;
+  font-size: 85px !important;
+  color: white !important;
   font-weight: bold;
   font-family: "Roboto Condensed";
 }
 
 .quarto-title-author-name {
-  font-size: 40px;
+  font-size: 45px;
   font-weight: bold;
-  color: honeydew !important;
-}
-
-.date {
-  font-size: 30px;
-  font-weight: bold;
-  color: honeydew !important;
+  color: white !important;
 }
 
 ```
 
-## Methodology, Casualty Incidents
+## Methodology: Analyzing Casualty Incidents
 
 ::::: columns
-::: {.column width="60%" style="font-size:30px"}
+::: {.column width="55%" style="font-size:30px"}
 **Data Source**: [Airwars](https://airwars.org/conflict/israel-and-gaza-2023/) tracks civilian incidents from conflicts.
 
 1.  **Web Scrape**: \~ 800 incidents (\~9,000 deaths, \~10,000 injured) store in SQLite.
 
-2.  **JSON Parse**: incident characteristics & casualties. Women & children deaths 51%. Extract geocoordinates from "Assessment" (65% of incidents).
+2.  **JSON Parse**: Incident characteristics & casualties. Extract geocoordinates from "Assessment" (65% of incidents).
 
-3.  **Reverse Geocoding**: Submit incident coordinate queries to the [Nominatim](https://nominatim.org/release-docs/develop/api/Reverse/) API, keep location type.
+3.  **Reverse Geocoding**: Submit incident coordinate queries to the [Nominatim](https://nominatim.org/release-docs/develop/api/Reverse/) API, keep location type (i.e., school, hospital).
 
 4.  **Sentiment Analysis**: Derive emotional tone from assessments. [DistilRoBERTa-base](https://huggingface.co/j-hartmann/emotion-english-distilroberta-base), classifies text into Ekman's 6 basic emotions.
 
 5.  **Clustering Analysis**: Explore geographic w/ sentiment features to unpack geographic associations with child & women casualties.
 :::
 
-::: {.column width="40%"}
+::: {.column width="45%"}
 ![](images/airwars_metadata_example.png){fig-align="right" width="500" height="350"}
 
 ![](images/airwars_incident_example.png){fig-align="right" width="500" height="300"}
@@ -161,7 +160,7 @@ pop_data <- rbind(Total, Children, Men, Women) |>
 ## Results: Casualty Rate, Sentiment Analysis
 
 ::: {style="font-size: 32px"}
--   Children & Women not more likely to be killed, once adjusted for population size.
+-   Children & Women likely to be killed after adjusting for population size.
 -   Sadness is the prominent emotional tone, followed by fear, varies across time.
 :::
 
@@ -170,43 +169,42 @@ pop_data <- rbind(Total, Children, Men, Women) |>
 #| fig-width: 8
 #| fig-height: 4
 #| 
-# estimate monthly casualty rate
+# estimate casualty rate
 p1 <- incidents_cum |> 
-  #filter(data_source == "Airwars") |> 
-  mutate(Incident_month = as.yearmon(Incident_Date)) |> 
+  group_by(data_source) |> 
+  filter(Incident_Date == max(Incident_Date)) |> 
   pivot_wider(names_from=name, values_from=value) |> 
-  mutate(Children = Children /Total,
-         Women = Women/Total) |> 
-  rename(Men=Total) |> 
-  select(data_source, Incident_month, Children, Women, Men) |> 
-  pivot_longer(-c("Incident_month", "data_source")) |> 
-  group_by(data_source, Incident_month, name) |> 
-  reframe(casualty = max(value)) |> 
+  mutate(Men = Total - (Children + Women)) |> 
+  select(-Total, -Incident_Date) |> 
+  pivot_longer(-data_source) |> 
   left_join(pop_data) |> 
-  # create casualty rate
-  # (total casualties / total population) x 100
-  group_by(data_source, Incident_month) |> 
-  mutate(adjusted_casualty = casualty* (pop/sum(pop))) |> 
-  filter(name!= "Men") |> 
-  select(-pop) |> 
-  pivot_longer(-c("data_source", "Incident_month", "name"), names_to = "estimate") |> 
-  mutate(estimate = relevel(
-    factor(estimate), ref="casualty") ) |> 
-  ggplot(aes(x=Incident_month, y=value, fill=name)) +
+  # calculate casualty rate normalized by per 1000
+  mutate(unadjusted = value/sum(value),
+         pop_prop = pop/sum(pop),
+         adjusted =  (unadjusted * pop_prop) * 1000,
+         adjusted = adjusted / sum(adjusted),
+         name = fct_reorder(name, adjusted, .fun=min)
+                ) |> 
+  ungroup() |> 
+  select(data_source, name, unadjusted, adjusted) |> 
+  reshape2::melt(id=c("data_source", "name")) |> 
+  mutate(name = factor(name, 
+                       levels=c("Men", 
+                                "Women", 
+                                "Children" ))) |> 
+  ggplot(aes(x=variable, y=value, fill=name)) +
   geom_bar(position="stack", stat="identity") +
-  ylab("Casualty Rate") +
+  geom_text(aes(label = round(value, 2)*100), position = position_fill(vjust=.5), size=4)  +
+  facet_wrap(~data_source) +
+  ylab("") +
   xlab("") +
   scale_y_continuous(labels = scales::percent) +
-  facet_grid(rows=vars(data_source), cols=vars(estimate)) +
-  guides(fill=guide_legend(title="")) +
+  guides(fill=guide_legend(title="", reverse = FALSE)) +
   scale_fill_viridis_d(option="cividis", direction = -1,
                        alpha=.80, end =.70, begin=.15) +
-  scale_color_viridis_d(option="cividis", direction = -1,
-                       alpha=.80, end =.70, begin=.15) +
   dark_theme_linedraw() +
-  theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust=1, size=12),
-        legend.position="top") +
-  ggtitle("Casualty Rate")
+    theme(axis.text.x = element_text(angle = 35, vjust = 0.75, hjust=.9, size=12)) +
+  ggtitle("Current Casualty Rates")
   
   # sentiment analysis plot
 p2 <- 
@@ -226,7 +224,7 @@ airwars_incidents |>
                         alpha=.99, end =.99, begin=.35) +
   dark_theme_linedraw() +
   theme(text = element_text(size = 12)) +
-  ggtitle("Sentiment Analysis")
+  ggtitle("Sentiment Analysis 2023-24")
 
 p1 + plot_spacer() + p2 + plot_layout(widths = c(4, .01, 3))
 
@@ -235,14 +233,14 @@ p1 + plot_spacer() + p2 + plot_layout(widths = c(4, .01, 3))
 
 ## Results: Hierarchical Clustering
 
-::: {style="font-size: 32px"}
--   3-clusters.
+::: {style="font-size: 36px"}
+-   Cluster 3 (39%), higher average of children killed associated with anger, disgust, fear, number of injured, & occurring in refugee camps.
 :::
 
 ```{r}
 #| echo: FALSE
-#| fig-width: 9
-#| fig-height: 5
+#| fig-width: 11
+#| fig-height: 6
 #| 
 # subset out geographic data
 airwars_incidents_coord <- airwars_incidents |>
@@ -252,8 +250,10 @@ airwars_incidents_coord <- airwars_incidents |>
   mutate(incident_lat = as.numeric(incident_lat),
          incident_long = as.numeric(incident_long),
     children_killed = ifelse(is.na(children_killed), 0, children_killed),
-         women_killed = ifelse(is.na(women_killed), 0, women_killed),
-         
+    women_killed = ifelse(is.na(women_killed), 0, women_killed),
+    men_killed = killed - (children_killed + women_killed),
+    men_killed = ifelse(is.na(men_killed), 0, men_killed),
+
          # clean up strike type string
          strike_type = str_remove_all(strike_type, 
                                       "Airstrike and/or|Airstrike,|Artillery,"),
@@ -327,15 +327,26 @@ p1 <- airwars_incidents_coord |>
          Artillery = ifelse(strike_type=="Artillery", 1, 0)
   ) |> 
   group_by(cluster) |> 
-  reframe(mean(sadness), mean(fear), mean(disgust), mean(anger), 
-          mean(neutral), mean(surprise), mean(killed), mean(injured),
-          mean(children_killed), mean(women_killed),
-          mean(school), mean(hospital), mean(place_of_worship),
-          mean(refugee_camp), mean(Airstrike), mean(Artillery)) |> 
-  pivot_longer(-cluster) |> 
+    reframe(sadness = mean(sadness), 
+          fear = mean(fear), 
+          disgust = mean(disgust), 
+          anger = mean(anger), 
+          "men killed" = mean(men_killed), 
+          "children killed" = mean(children_killed), 
+          "women killed" = mean(women_killed),
+          school = mean(school), 
+          hospital = mean(hospital), 
+          "place of workship" = mean(place_of_worship),
+          "refugee camp" = mean(refugee_camp), 
+          artillery = mean(Artillery)) |> 
+  pivot_longer(-cluster) |>
+  mutate(name=factor(name, levels=c("children killed","women killed","men killed",
+                                    "sadness", "fear", "disgust", "anger",
+                                    "school", "hospital", "place of workship",
+                                    "refugee camp", "artillery"))) |> 
   ggplot(aes(x=cluster, y=value, fill=cluster)) +
-  geom_bar(stat="identity", width=.5, position = "dodge") +
-  facet_wrap(~name, scales = "free") +
+  geom_bar(stat="identity", width=.5, position = "dodge", show.legend = FALSE) +
+  facet_wrap(~name, scales = "free", ncol=3) +
   theme_hc() +
   ylab("") +
   xlab("") +
@@ -359,7 +370,7 @@ register_google(key = cs_key, write = TRUE)
 
 
 gaza_map <- get_googlemap(center = c(lon = 34.3900, lat = 31.4100),  #"Gaza Strip", 
-                          maptype = "hybrid",  #size = c(800, 650),
+                          maptype = "hybrid", 
                           zoom=11) 
 
 
@@ -369,16 +380,14 @@ p2 <- gaza_map |>
                  aes(x = incident_long, y = incident_lat,
                      fill = cluster, alpha = ..level..), 
                  size = 1, bins = 20, geom = 'polygon') +
-  scale_alpha(range = c(.01, .30), guide = FALSE) +
-  geom_point(aes(x = incident_long, y = incident_lat , 
-                 color=cluster, size=children_killed), 
-             data=airwars_incidents_coord) +
+  scale_alpha(range = c(.01, .35), guide = FALSE) +
+
   scale_color_viridis_d(option="magma", 
                        direction = -1, end=.80, begin=.30, alpha=.80) +
   scale_fill_viridis_d(option="magma", 
                        direction = -1, end=.80, begin=.3) +  
   dark_theme_linedraw() +
-  theme(legend.position="bottom",
+  theme(legend.position="top",
         text = element_text(size = 14))
 
 

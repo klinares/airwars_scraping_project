@@ -164,22 +164,36 @@ incidents_cum |>
 
 # estimate casualty rate
 incidents_cum |> 
-  group_by(data_source, name) |> 
-  # create casualty rate
-  # (total casualties / total population) x 100
-  reframe(casualty_sum = max(value) ) |> 
+  group_by(data_source) |> 
+  filter(Incident_Date == max(Incident_Date)) |> 
+  pivot_wider(names_from=name, values_from=value) |> 
+  mutate(Men = Total - (Children + Women)) |> 
+  select(-Total, -Incident_Date) |> 
+  pivot_longer(-data_source) |> 
   left_join(pop_data) |> 
-  mutate(casualty_rate = (casualty_sum / pop) * 100,
-         name = factor(name, 
-                       levels=c("Children", 
+  # calculate casualty rate normalized by per 1000
+  mutate(casualty_rate = value/sum(value),
+         pop_prop = pop/sum(pop),
+         casualty_rate_adj =  (casualty_rate * pop_prop) * 1000,
+         casualty_rate_adj = casualty_rate_adj / sum(casualty_rate_adj),
+         name = fct_reorder(name, casualty_rate_adj, .fun=min)
+                ) |> 
+  ungroup() |> 
+  select(data_source, name, casualty_rate, casualty_rate_adj) |> 
+  reshape2::melt(id=c("data_source", "name")) |> 
+  mutate(name = factor(name, 
+                       levels=c("Men", 
                                 "Women", 
-                                "Total" ))) |> 
-  ggplot(aes(x=name, y=casualty_rate, fill=name)) +
-  geom_bar(position="dodge", stat="identity") +
-  facet_wrap(~data_source, scale="free") +
-  ylab("Casualty Rate") +
+                                "Children" ))) |> 
+  ggplot(aes(x=data_source, y=value, fill=name)) +
+  geom_bar(position="stack", stat="identity") +
+  geom_text(aes(label = round(value, 2)*100), position = position_fill(vjust=.5), size=4)  +
+  facet_wrap(~variable) +
+  coord_flip() +
+  ylab("") +
   xlab("") +
-  guides(fill=guide_legend(title="")) +
+  scale_y_continuous(labels = scales::percent) +
+  guides(fill=guide_legend(title="", reverse = TRUE)) +
   scale_fill_viridis_d(option="cividis", direction = -1,
                        alpha=.80, end =.70, begin=.15) +
   dark_theme_linedraw() +
@@ -222,7 +236,9 @@ airwars_incidents_coord <- airwars_incidents |>
   mutate(incident_lat = as.numeric(incident_lat),
          incident_long = as.numeric(incident_long),
     children_killed = ifelse(is.na(children_killed), 0, children_killed),
-         women_killed = ifelse(is.na(women_killed), 0, women_killed),
+    women_killed = ifelse(is.na(women_killed), 0, women_killed),
+    men_killed = killed - (children_killed + women_killed),
+    men_killed = ifelse(is.na(men_killed), 0, men_killed),
          
          # clean up strike type string
          strike_type = str_remove_all(strike_type, 
@@ -262,7 +278,7 @@ airwars_incidents_coord <- airwars_incidents |>
 # drop NA, select variables of interest and scale
 hclust_data <- airwars_incidents_coord |> 
   select( injured, killed,
-         anger:surprise, -joy, 
+        anger:surprise, -joy, 
          incident_lat, incident_long) |> 
   drop_na() |> 
   mutate_all(scale)
@@ -300,7 +316,7 @@ do.call("grid.arrange",
 
 # examine cluster assignment proportion
 ## choose k-clusters to compare
-map(2:4, function(x){
+map(2:7, function(x){
   factor(cutree(hc_ward, x)) |> 
     as_tibble() |> 
     rename(cluster=1) |> 
@@ -326,12 +342,24 @@ airwars_incidents_coord |>
          Artillery = ifelse(strike_type=="Artillery", 1, 0)
   ) |> 
   group_by(cluster) |> 
-  reframe(mean(sadness), mean(fear), mean(disgust), mean(anger), 
-          mean(neutral), mean(surprise), mean(killed), mean(injured),
-          mean(children_killed), mean(women_killed),
-          mean(school), mean(hospital), mean(place_of_worship),
-          mean(refugee_camp), mean(Airstrike), mean(Artillery)) |> 
-  pivot_longer(-cluster) |> 
+  reframe(sadness = mean(sadness), 
+          fear = mean(fear), 
+          disgust = mean(disgust), 
+          anger = mean(anger), 
+          men_killed = mean(men_killed), 
+          injured = mean(injured),
+          children_killed = mean(children_killed), 
+          women_killed = mean(women_killed),
+          school = mean(school), 
+          hospital = mean(hospital), 
+          place_of_workship = mean(place_of_worship),
+          refugee_camp = mean(refugee_camp), 
+          artillery = mean(Artillery)) |> 
+  pivot_longer(-cluster) |>
+  mutate(name=factor(name, levels=c("children_killed","women_killed","men_killed",
+                                    "sadness", "fear", "disgust", "anger", "injured",
+                                    "school", "hospital", "place_of_workship",
+                                    "refugee_camp", "artillery"))) |> 
   ggplot(aes(x=cluster, y=value, fill=cluster)) +
   geom_bar(stat="identity", width=.5, position = "dodge") +
   facet_wrap(~name, scales = "free") +
@@ -343,7 +371,7 @@ airwars_incidents_coord |>
                        direction = -1, end=.90, begin=.30, alpha=.80) +
   dark_theme_linedraw() +
   theme(legend.position="top",
-        text = element_text(size = 14)) 
+        text = element_text(size = 12)) 
 
 
 
