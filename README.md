@@ -1,5 +1,7 @@
 # **Airwars Scrapping (Repository) Project**
-![alt text](http://url/to/img.png)
+<img src="https://github.com/klinares/airwars_scraping_project/blob/main/documentation/images/gettyimages-17150741001-d04be3e7261c5b194006da8f78456cddc9234cb5.jpg" width="480"> <img src="https://github.com/klinares/airwars_scraping_project/blob/main/documentation/images/gettyimages-1755788246_custom-7e01225eb0c26b87db12a36e0244339b23726d94.jpg" width="490" height="360">
+
+##### [source of image (left),](https://www.npr.org/sections/health-shots/2023/11/24/1214534579/images-war-gaza-israel-vicarious-trauma-stress)  [source of image(right)](https://www.npr.org/sections/goatsandsoda/2023/11/10/1211672951/israel-hamas-war-mental-health-gaza-children)
 
 Thank you for visiting this repository which started as a class project for a UMD data science course and has taken a life of its own. The purpose is to scrape data from [https://airwars.org/](https://airwars.org/) and create analytics to enhance our understanding of the conflict in Gaza since the October 2023 war with Israel begun. [Aljazeera](https://www.aljazeera.com/news/longform/2023/10/9/israel-hamas-war-in-maps-and-charts-live-tracker) has a detailed look into this conflict along with casualty tracker.
 
