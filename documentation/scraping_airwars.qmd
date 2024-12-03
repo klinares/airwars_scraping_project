@@ -1,21 +1,23 @@
 ---
 title: |
   <br>
+  <br>
+  <br>
+  <br>
+  <br>
+  <br>
+  <br>
+  <br>
+  <br>
+  <br>
+  <br>
+  <br>
+  <br>
 
-  "Scrapping civilian casualty incidents from Airwars"
-  
-  <br>
-  <br>
-  <br>
-  <br>
-  <br>
-  <br>
-   
 author: Kevin Linares
 date: "`r format(Sys.time(), '%d %B, %Y')`"
 embed-resources: true
 editor: visual
-title-block-banner-color: "honeydew"
 title-block-banner: /home/kevin/repos/airwars_scraping_project/documentation/images/unicef_gaza_crisis.png
 execute:
   warning: false
@@ -23,19 +25,16 @@ execute:
   error: false
   tidy: true
 format: html
-theme: spacelab
+theme: darkly
 toc: true
 toc-depth: 2
 ---
 
-```{css, echo=FALSE}
-.title {
-  font-size: 55px !important;
-  color: white !important;
-  font-weight: bold;
-  font-family: "Roboto Condensed";
-}
-```
+# **Scrapping civilian casualty incidents from Airwars**
+
+\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
+
+<br>
 
 ## Computing Resources:
 
@@ -52,11 +51,14 @@ pacman::p_load(lubridate, RSQLite, DBI, zoo, ggthemes,
                ggdark, janitor,  jsonlite, viridis, tidyverse)
 ```
 
-\
+
+<br>
 
 ### We store all of our data in a [SQLite database](https://github.com/klinares/airwars_scraping_project/tree/main/database) that can also be found in our github repository
 
-\
+
+<br>
+
 
 ## Structure of SQlite database
 
@@ -79,7 +81,9 @@ mydb <- dbConnect(
 dbListTables(mydb) # print tables in database
 ```
 
-\
+
+<br>
+
 
 ## Scraping Airwars Civilian Casualty Incidents
 
@@ -90,7 +94,9 @@ dbListTables(mydb) # print tables in database
 
 ![Example of Incident Metadata](images/airwars_metadata_example.png){fig-align="center" width="600"}
 
-\
+
+<br>
+
 
 -   [Metadata table:]{style="color: forestgreen"} We scrape the main Airwars website parse information we need to build a table containing each incident's web-url (over 800 URLs), as seen in the example below.
 
@@ -119,10 +125,12 @@ airwars_incidents <- tbl(mydb, "airwars_incidents") |>
 airwars_incidents |> 
   head() |> 
   select(-assessment:-surprise) |> 
-  DT::datatable()
+  kable()
 ```
 
-\
+
+<br>
+
 
 ## MoH Daily Casualties
 
@@ -137,10 +145,12 @@ tbl(mydb, "daily_casualties") |>
   as_tibble() |> 
   mutate(Incident_Date = lubridate::as_date(Incident_Date)) |> 
   head() |> 
-  DT::datatable()
+  kable()
 ```
 
-\
+
+<br>
+
 
 ## Enriching Data with Reverse geocoding
 
@@ -152,10 +162,11 @@ tbl(mydb, "daily_casualties") |>
     airwars_incidents |> 
       select(target_type, contains("lat"), contains("long")) |> 
       head() |> 
-      DT::datatable()
+      kable()
     ```
 
-\\
+
+<br>
 
 ## Sentiment Analysis
 
@@ -182,7 +193,7 @@ airwars_incidents |>
   select(assessment:surprise) |> 
   mutate(assessment = str_trunc(assessment, 200),
          across(where(is.double), ~ round(.x, 2))) |> 
-  DT::datatable()
+  kable()
 ```
 
-\
+
