@@ -50,10 +50,17 @@ airwars_incidents <- tbl(mydb, "airwars_incidents") |>
   mutate(killed = ifelse(is.na(killed), 0, killed),
          injured = str_remove(civilians_reported_injured, ".*–"),
          injured = ifelse(is.na(injured), 0, injured),
-         injured = as.numeric(injured)) |> 
+         injured = as.numeric(injured),
+         incident_lat = as.numeric(incident_lat),
+         incident_long = as.numeric(incident_long),
+         children_killed = ifelse(is.na(children_killed), 0, children_killed),
+         women_killed = ifelse(is.na(women_killed), 0, women_killed),
+         men_killed = killed - (children_killed + women_killed),
+         men_killed = ifelse(is.na(men_killed), 0, men_killed)) |> 
   rename(Incident_id = incident_id) |> 
   # add dates
   left_join(airwars_meta |> select(Incident_id, Incident_Date))
+
 
 
 daily_casualties <- tbl(mydb, "daily_casualties") |> 
@@ -102,7 +109,9 @@ pop_data <- rbind(Total, Children, Men, Women) |>
 
 ::::: columns
 ::: {.column width="60%" style="font-size: 36px"}
--   **Background**: 10/7/2023 Hamas attacks Israel killing 1,200 people, Israel retaliates. Estimated dead \~44,000.
+-   **Background**: 10/7/2023 Hamas attacks Israel killing 1,200 people, Israel retaliates.
+
+    -   Estimated Palestinian dead \~44,000 (60% children & women).
 
 -   **Problem**: Hamas Ministry of Health (MoH) reports casualties, cannot be corroborated.
 
@@ -136,31 +145,29 @@ pop_data <- rbind(Total, Children, Men, Women) |>
 ## Methodology: Analyzing Casualty Incidents
 
 ::::: columns
-::: {.column width="55%" style="font-size:30px"}
+::: {.column width="50%" style="font-size:30px"}
 **Data Source**: [Airwars](https://airwars.org/conflict/israel-and-gaza-2023/) tracks civilian incidents from conflicts.
 
-1.  **Web Scrape**: \~ 800 incidents (\~9,000 deaths, \~10,000 injured) store in SQLite.
+1.  **Web Scrape**: \~ 800 incidents (\~9,000 deaths).
 
-2.  **JSON Parse**: Incident characteristics & casualties. Extract geocoordinates from "Assessment" (65% of incidents).
+2.  **Parse JSON**: Extract incident characteristics, including geo-coordinates (65% of incidents), & store in SQLite database.
 
-3.  **Reverse Geocoding**: Submit incident coordinate queries to the [Nominatim](https://nominatim.org/release-docs/develop/api/Reverse/) API, keep location type (i.e., school, hospital).
+3.  **Reverse Geo-coding**: Supply incident coordinates to [Nominatim](https://nominatim.org/release-docs/develop/api/Reverse/) API, return site type (school, hospital).
 
 4.  **Sentiment Analysis**: Derive emotional tone from assessments. [DistilRoBERTa-base](https://huggingface.co/j-hartmann/emotion-english-distilroberta-base), classifies text into Ekman's 6 basic emotions.
 
-5.  **Clustering Analysis**: Explore geographic w/ sentiment features to unpack geographic associations with child & women casualties.
+5.  **Clustering Analysis**: Explore geographically civilian casualty patterns.
 :::
 
-::: {.column width="45%"}
-![](images/airwars_metadata_example.png){fig-align="right" width="500" height="350"}
-
-![](images/airwars_incident_example.png){fig-align="right" width="500" height="300"}
+::: {.column width="50%"}
+![](images/airwars_incident_example.png){fig-align="right" width="700" height="600"}
 :::
 :::::
 
 ## Results: Casualty Rate, Sentiment Analysis
 
 ::: {style="font-size: 32px"}
--   Children & Women likely to be killed after adjusting for population size.
+-   Children more likely to be killed after adjusting for population size.
 -   Sadness is the prominent emotional tone, followed by fear, varies across time.
 :::
 
@@ -192,10 +199,11 @@ p1 <- incidents_cum |>
                        levels=c("Men", 
                                 "Women", 
                                 "Children" ))) |> 
+  filter(data_source == "Airwars") |> 
   ggplot(aes(x=variable, y=value, fill=name)) +
   geom_bar(position="stack", stat="identity") +
   geom_text(aes(label = round(value, 2)*100), position = position_fill(vjust=.5), size=4)  +
-  facet_wrap(~data_source) +
+  #facet_wrap(~data_source) +
   ylab("") +
   xlab("") +
   scale_y_continuous(labels = scales::percent) +
@@ -233,63 +241,24 @@ p1 + plot_spacer() + p2 + plot_layout(widths = c(4, .01, 3))
 
 ## Results: Hierarchical Clustering
 
-::: {style="font-size: 36px"}
--   Cluster 3 (39%), higher average of children killed associated with anger, disgust, fear, number of injured, & occurring in refugee camps.
-:::
+::::: columns
+::: {.column width="50%" style="font-size: 32px"}
+-   Cannot discern patterns in the targeting of civilians.
+
+    -   3-cluster model: Cluster 3 contained high average deaths from airstrikes associated w/ fear & anger, & occurred at schools & hospitals.
 
 ```{r}
 #| echo: FALSE
-#| fig-width: 11
-#| fig-height: 6
+#| fig-width: 6
+#| fig-height: 5
 #| 
-# subset out geographic data
-airwars_incidents_coord <- airwars_incidents |>
-  filter(!is.na(incident_lat), # filter data with 
-    !is.na(strike_type)#, strike_type != "Airstrike"
-  ) |> 
-  mutate(incident_lat = as.numeric(incident_lat),
-         incident_long = as.numeric(incident_long),
-    children_killed = ifelse(is.na(children_killed), 0, children_killed),
-    women_killed = ifelse(is.na(women_killed), 0, women_killed),
-    men_killed = killed - (children_killed + women_killed),
-    men_killed = ifelse(is.na(men_killed), 0, men_killed),
-
-         # clean up strike type string
-         strike_type = str_remove_all(strike_type, 
-                                      "Airstrike and/or|Airstrike,|Artillery,"),
-         strike_type = str_trim(strike_type),
-         strike_type = ifelse(strike_type == "Counter-Terrorism Action (Ground)", 
-                              "Ground operation", 
-                              ifelse(strike_type=="Naval bombardment", "Artillery",
-                                     strike_type)),
-         
-         # clean up target_type
-         target_type = str_replace_all(target_type, "secondary|tertiary|college", "school"),
-         target_type = str_replace(target_type, "pharmacy", "hospital"),
-         target_type = ifelse(civilian_infrastructure=="IDP or refugee camp", 
-                              "IDP or refugee camp", target_type),
-         target_type = ifelse(target_type %in% 
-                                c("residential", "school", "hospital", "place_of_worship",
-                                  "IDP or refugee camp"),
-                              target_type, "other"),
-         
-         # clean civilian infrastructure string
-         civilian_infrastructure =
-           str_remove(civilian_infrastructure, "\\,.*"),
-         civilian_infrastructure = ifelse(
-           civilian_infrastructure %in% c("Residential building", "IDP or refugee camp",
-                                          "Religious Institution", "Healthcare facility", "School"),
-           civilian_infrastructure, "other")
-         ) 
-
 
 
 
 # drop NA, select variables of interest and scale
-hclust_data <- airwars_incidents_coord |> 
+hclust_data <- airwars_incidents |> 
   select( injured, killed,
-         anger:surprise, -joy, 
-         incident_lat, incident_long) |> 
+        anger:surprise,  -joy) |> 
   drop_na() |> 
   mutate_all(scale)
 
@@ -302,7 +271,7 @@ hc_ward <- hclust(hclust_d, method = "ward.D2")
 dend_plot_fun <- function(mod, k_num) {
   
   fviz_dend(mod, k=k_num, 
-            lwd = 0.8, , k_colors = "npg", rect = TRUE, rect_border = "npg", 
+            lwd = 0.8, , k_colors = "tron", rect = TRUE, rect_border = "tron", 
             rect_fill = TRUE, show_labels = FALSE, cex = 0.75,  # label size
             #c("#2E9FDF", "#00AFBB", "#E7B800", "#FC4E07"),
             color_labels_by_k = TRUE,  # color labels by groups
@@ -312,51 +281,60 @@ dend_plot_fun <- function(mod, k_num) {
 }
 
 
-# now add optimal cluster back to the table
-airwars_incidents_coord <- airwars_incidents_coord |> 
-  mutate(cluster = factor(factor(cutree(hc_ward, 3))))
+plot_list <- map(3:5, function(x){
+  dend_plot_fun(hc_ward, x)
+}) 
+  
+
+# plot dendogram for each cluster 
+do.call("grid.arrange", 
+        c(plot_list, ncol =
+            floor(sqrt( length(plot_list)) ) 
+          )
+        )
+
+```
+:::
+
+::: {.column width="50%"}
+```{r}
+#| echo: FALSE
+#| fig-width: 7
+#| fig-height: 9
+#| 
 
 
-
-p1 <- airwars_incidents_coord |> 
-  mutate(school = ifelse(target_type == "school", 1, 0),
-         hospital = ifelse(target_type == "hospital", 1, 0),
-         place_of_worship = ifelse(target_type == "place_of_worship", 1, 0),
-         refugee_camp = ifelse(str_detect(target_type, "refugee camp"), 1, 0),
-         Airstrike = ifelse(strike_type == "Airstrike", 1, 0),
-         Artillery = ifelse(strike_type=="Artillery", 1, 0)
-  ) |> 
-  group_by(cluster) |> 
-    reframe(sadness = mean(sadness), 
-          fear = mean(fear), 
-          disgust = mean(disgust), 
-          anger = mean(anger), 
-          "men killed" = mean(men_killed), 
-          "children killed" = mean(children_killed), 
-          "women killed" = mean(women_killed),
-          school = mean(school), 
-          hospital = mean(hospital), 
-          "place of workship" = mean(place_of_worship),
-          "refugee camp" = mean(refugee_camp), 
-          artillery = mean(Artillery)) |> 
-  pivot_longer(-cluster) |>
-  mutate(name=factor(name, levels=c("children killed","women killed","men killed",
-                                    "sadness", "fear", "disgust", "anger",
-                                    "school", "hospital", "place of workship",
-                                    "refugee camp", "artillery"))) |> 
-  ggplot(aes(x=cluster, y=value, fill=cluster)) +
-  geom_bar(stat="identity", width=.5, position = "dodge", show.legend = FALSE) +
-  facet_wrap(~name, scales = "free", ncol=3) +
-  theme_hc() +
-  ylab("") +
-  xlab("") +
-  guides(fill=guide_legend(title="Clusters")) +
-  scale_fill_viridis_d(option="magma", 
-                       direction = -1, end=.80, begin=.30, alpha=.80) +
-  dark_theme_linedraw() +
-  theme(legend.position="top",
-        text = element_text(size = 12)) 
-
+# write the cluster assignment back to the dataframe, prepare for plotting
+airwars_incidents_coord <- airwars_incidents |> 
+  mutate(cluster = factor(cutree(hc_ward, 3))) |> 
+  filter(!is.na(incident_lat)) |> 
+  mutate(
+    # clean up strike type string
+    strike_type = str_remove_all(strike_type, 
+                                 "Airstrike and/or|Airstrike,|Artillery,"),
+    strike_type = str_trim(strike_type),
+    strike_type = ifelse(strike_type == "Counter-Terrorism Action (Ground)", 
+                         "Ground operation", 
+                         ifelse(strike_type=="Naval bombardment", "Artillery",
+                                strike_type)),
+    
+    # clean up target_type
+    target_type = str_replace_all(target_type, "secondary|tertiary|college", "school"),
+    target_type = str_replace(target_type, "pharmacy", "hospital"),
+    target_type = ifelse(civilian_infrastructure=="IDP or refugee camp", 
+                         "IDP or refugee camp", target_type),
+    target_type = ifelse(target_type %in% 
+                           c("residential", "school", "hospital", "place_of_worship",
+                             "IDP or refugee camp"),
+                         target_type, "other"),
+    # make qualitative variables
+    school = ifelse(target_type == "school", 1, 0),
+    hospital = ifelse(target_type == "hospital", 1, 0),
+    place_of_worship = ifelse(target_type == "place_of_worship", 1, 0),
+    refugee_camp = ifelse(str_detect(target_type, "refugee camp"), 1, 0),
+    Airstrike = ifelse(strike_type == "Airstrike", 1, 0),
+    Artillery = ifelse(strike_type=="Artillery", 1, 0)
+  ) 
 
 
 # plot the clusters on a map
@@ -370,31 +348,33 @@ register_google(key = cs_key, write = TRUE)
 
 
 gaza_map <- get_googlemap(center = c(lon = 34.3900, lat = 31.4100),  #"Gaza Strip", 
-                          maptype = "hybrid", 
-                          zoom=11) 
+                          maptype = "satellite", size = c(900, 1200), # width, height
+                          zoom=12) 
 
 
-p2 <- gaza_map |> 
+gaza_map |> 
   ggmap() + 
-  stat_density2d(data = airwars_incidents_coord, 
+  stat_density2d(data = airwars_incidents_coord,
                  aes(x = incident_long, y = incident_lat,
-                     fill = cluster, alpha = ..level..), 
-                 size = 1, bins = 20, geom = 'polygon') +
-  scale_alpha(range = c(.01, .35), guide = FALSE) +
-
-  scale_color_viridis_d(option="magma", 
-                       direction = -1, end=.80, begin=.30, alpha=.80) +
-  scale_fill_viridis_d(option="magma", 
-                       direction = -1, end=.80, begin=.3) +  
+                     fill = cluster, alpha = ..level..),
+                 size = 1, bins = 5,
+                 geom = 'polygon') +
+  scale_alpha(range = c(.01, .40), guide = FALSE) +
+  geom_point(aes(x = incident_long, y = incident_lat , 
+                 color=cluster), 
+             data=airwars_incidents_coord) +
+  scale_color_tron(alpha=.55) + 
+  scale_fill_tron() +
   dark_theme_linedraw() +
   theme(legend.position="top",
-        text = element_text(size = 14))
+        text = element_text(size = 16))
 
 
-p1 + p2
+rm(airwars_incidents_coord)
+rm(airwars_incidents)
 
 # the following creates a pdf
-# pagedown::chrome_print(
-#"repos/airwars_scraping_project/code/airwars_project_slides.html" )
-  
+# pagedown::chrome_print("repos/airwars_scraping_project/code/airwars_project_slides.html" )
 ```
+:::
+:::::

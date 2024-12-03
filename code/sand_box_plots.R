@@ -26,7 +26,13 @@ airwars_incidents <- tbl(mydb, "airwars_incidents") |>
   mutate(killed = ifelse(is.na(killed), 0, killed),
          injured = str_remove(civilians_reported_injured, ".*–"),
          injured = ifelse(is.na(injured), 0, injured),
-         injured = as.numeric(injured)) |> 
+         injured = as.numeric(injured),
+         incident_lat = as.numeric(incident_lat),
+         incident_long = as.numeric(incident_long),
+         children_killed = ifelse(is.na(children_killed), 0, children_killed),
+         women_killed = ifelse(is.na(women_killed), 0, women_killed),
+         men_killed = killed - (children_killed + women_killed),
+         men_killed = ifelse(is.na(men_killed), 0, men_killed)) |> 
   rename(Incident_id = incident_id) |> 
   # add dates
   left_join(airwars_meta |> select(Incident_id, Incident_Date))
@@ -45,7 +51,7 @@ incidents_cum <- airwars_incidents |>
   mutate(across(where(is.integer),~ replace_na(.x, 0))) |> 
   group_by(Incident_Date) |> 
   reframe(killed = sum(killed), children_killed = sum(children_killed), 
-                       women_killed = sum(women_killed)) |> 
+          women_killed = sum(women_killed)) |> 
   mutate(Total = cumsum(killed),
          Children = cumsum(children_killed),
          Women = cumsum(women_killed)) |> 
@@ -153,7 +159,7 @@ incidents_cum |>
   scale_fill_viridis_d(option="cividis", direction = -1,
                        alpha=.80, end =.70, begin=.15) +
   scale_color_viridis_d(option="cividis", direction = -1,
-                       alpha=.80, end =.70, begin=.15) +
+                        alpha=.80, end =.70, begin=.15) +
   dark_theme_linedraw() +
   theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust=1, size=12),
         legend.position="top") 
@@ -177,7 +183,7 @@ incidents_cum |>
          casualty_rate_adj =  (casualty_rate * pop_prop) * 1000,
          casualty_rate_adj = casualty_rate_adj / sum(casualty_rate_adj),
          name = fct_reorder(name, casualty_rate_adj, .fun=min)
-                ) |> 
+  ) |> 
   ungroup() |> 
   select(data_source, name, casualty_rate, casualty_rate_adj) |> 
   reshape2::melt(id=c("data_source", "name")) |> 
@@ -228,47 +234,6 @@ airwars_incidents |>
 
 
 
-# subset out geographic data
-airwars_incidents_coord <- airwars_incidents |>
-  filter(!is.na(incident_lat), # filter data with 
-    !is.na(strike_type)#, strike_type != "Airstrike"
-  ) |> 
-  mutate(incident_lat = as.numeric(incident_lat),
-         incident_long = as.numeric(incident_long),
-    children_killed = ifelse(is.na(children_killed), 0, children_killed),
-    women_killed = ifelse(is.na(women_killed), 0, women_killed),
-    men_killed = killed - (children_killed + women_killed),
-    men_killed = ifelse(is.na(men_killed), 0, men_killed),
-         
-         # clean up strike type string
-         strike_type = str_remove_all(strike_type, 
-                                      "Airstrike and/or|Airstrike,|Artillery,"),
-         strike_type = str_trim(strike_type),
-         strike_type = ifelse(strike_type == "Counter-Terrorism Action (Ground)", 
-                              "Ground operation", 
-                              ifelse(strike_type=="Naval bombardment", "Artillery",
-                                     strike_type)),
-         
-         # clean up target_type
-         target_type = str_replace_all(target_type, "secondary|tertiary|college", "school"),
-         target_type = str_replace(target_type, "pharmacy", "hospital"),
-         target_type = ifelse(civilian_infrastructure=="IDP or refugee camp", 
-                              "IDP or refugee camp", target_type),
-         target_type = ifelse(target_type %in% 
-                                c("residential", "school", "hospital", "place_of_worship",
-                                  "IDP or refugee camp"),
-                              target_type, "other"),
-         
-         # clean civilian infrastructure string
-         civilian_infrastructure =
-           str_remove(civilian_infrastructure, "\\,.*"),
-         civilian_infrastructure = ifelse(
-           civilian_infrastructure %in% c("Residential building", "IDP or refugee camp",
-                                          "Religious Institution", "Healthcare facility", "School"),
-           civilian_infrastructure, "other")
-         ) 
-
-
 
 
 
@@ -276,10 +241,9 @@ airwars_incidents_coord <- airwars_incidents |>
 
 
 # drop NA, select variables of interest and scale
-hclust_data <- airwars_incidents_coord |> 
-  select( injured, killed,
-        anger:surprise, -joy, 
-         incident_lat, incident_long) |> 
+hclust_data <- airwars_incidents |> 
+  select( injured, killed, 
+          anger:surprise, -joy) |> 
   drop_na() |> 
   mutate_all(scale)
 
@@ -292,7 +256,7 @@ hc_ward <- hclust(hclust_d, method = "ward.D2")
 dend_plot_fun <- function(mod, k_num) {
   
   fviz_dend(mod, k=k_num, 
-            lwd = 0.8, , k_colors = "npg", rect = TRUE, rect_border = "npg", 
+            lwd = 0.8, , k_colors = "tron", rect = TRUE, rect_border = "tron", 
             rect_fill = TRUE, show_labels = FALSE, cex = 0.75,  # label size
             #c("#2E9FDF", "#00AFBB", "#E7B800", "#FC4E07"),
             color_labels_by_k = TRUE,  # color labels by groups
@@ -302,21 +266,21 @@ dend_plot_fun <- function(mod, k_num) {
 }
 
 
-plot_list <- map(2:7, function(x){
+plot_list <- map(6:11, function(x){
   dend_plot_fun(hc_ward, x)
 }) 
-  
+
 
 # plot dendogram for each cluster 
 do.call("grid.arrange", 
         c(plot_list, ncol =
             floor(sqrt( length(plot_list)) ) 
-          )
         )
+)
 
 # examine cluster assignment proportion
 ## choose k-clusters to compare
-map(2:7, function(x){
+map(3:9, function(x){
   factor(cutree(hc_ward, x)) |> 
     as_tibble() |> 
     rename(cluster=1) |> 
@@ -325,39 +289,64 @@ map(2:7, function(x){
 }) 
 
 
-# now add optimal cluster back to the table
-airwars_incidents_coord <- airwars_incidents_coord |> 
-  mutate(cluster = factor(factor(cutree(hc_ward, 3))))
+
+# write the cluster assignment back to the dataframe, prepare for plotting
+airwars_incidents_coord <- airwars_incidents |> 
+  mutate(cluster = factor(cutree(hc_ward, 3))) |> 
+  filter(!is.na(incident_lat)) |> 
+  mutate(
+    # clean up strike type string
+    strike_type = str_remove_all(strike_type, 
+                                 "Airstrike and/or|Airstrike,|Artillery,"),
+    strike_type = str_trim(strike_type),
+    strike_type = ifelse(strike_type == "Counter-Terrorism Action (Ground)", 
+                         "Ground operation", 
+                         ifelse(strike_type=="Naval bombardment", "Artillery",
+                                strike_type)),
+    
+    # clean up target_type
+    target_type = str_replace_all(target_type, "secondary|tertiary|college", "school"),
+    target_type = str_replace(target_type, "pharmacy", "hospital"),
+    target_type = ifelse(civilian_infrastructure=="IDP or refugee camp", 
+                         "IDP or refugee camp", target_type),
+    target_type = ifelse(target_type %in% 
+                           c("residential", "school", "hospital", "place_of_worship",
+                             "IDP or refugee camp"),
+                         target_type, "other"),
+    # make qualitative variables
+    school = ifelse(target_type == "school", 1, 0),
+    hospital = ifelse(target_type == "hospital", 1, 0),
+    place_of_worship = ifelse(target_type == "place_of_worship", 1, 0),
+    refugee_camp = ifelse(str_detect(target_type, "refugee camp"), 1, 0),
+    Airstrike = ifelse(strike_type == "Airstrike", 1, 0),
+    Artillery = ifelse(strike_type=="Artillery", 1, 0)
+  ) 
+
 
 
 
 
 # plot cluster with averages
 airwars_incidents_coord |> 
-  mutate(school = ifelse(target_type == "school", 1, 0),
-         hospital = ifelse(target_type == "hospital", 1, 0),
-         place_of_worship = ifelse(target_type == "place_of_worship", 1, 0),
-         refugee_camp = ifelse(str_detect(target_type, "refugee camp"), 1, 0),
-         Airstrike = ifelse(strike_type == "Airstrike", 1, 0),
-         Artillery = ifelse(strike_type=="Artillery", 1, 0)
-  ) |> 
   group_by(cluster) |> 
-  reframe(sadness = mean(sadness), 
-          fear = mean(fear), 
-          disgust = mean(disgust), 
-          anger = mean(anger), 
-          men_killed = mean(men_killed), 
-          injured = mean(injured),
-          children_killed = mean(children_killed), 
-          women_killed = mean(women_killed),
-          school = mean(school), 
-          hospital = mean(hospital), 
-          place_of_workship = mean(place_of_worship),
-          refugee_camp = mean(refugee_camp), 
-          artillery = mean(Artillery)) |> 
+  reframe(sadness = mean(sadness, na.rm = TRUE), 
+          fear = mean(fear, na.rm = TRUE), 
+          disgust = mean(disgust, na.rm = TRUE), 
+          surprise = mean(surprise, na.rm = TRUE), 
+          anger = mean(anger, na.rm = TRUE), 
+          men_killed = mean(men_killed, na.rm = TRUE), 
+          injured = mean(injured, na.rm = TRUE),
+          children_killed = mean(children_killed, na.rm = TRUE), 
+          women_killed = mean(women_killed, na.rm = TRUE),
+          school = mean(school, na.rm = TRUE), 
+          hospital = mean(hospital, na.rm = TRUE), 
+          place_of_workship = mean(place_of_worship, na.rm = TRUE),
+          refugee_camp = mean(refugee_camp, na.rm = TRUE), 
+          artillery = mean(Artillery, na.rm = TRUE)) |> 
   pivot_longer(-cluster) |>
   mutate(name=factor(name, levels=c("children_killed","women_killed","men_killed",
-                                    "sadness", "fear", "disgust", "anger", "injured",
+                                    "sadness", "fear", "disgust", "anger","surprise",
+                                    "injured",
                                     "school", "hospital", "place_of_workship",
                                     "refugee_camp", "artillery"))) |> 
   ggplot(aes(x=cluster, y=value, fill=cluster)) +
@@ -367,8 +356,7 @@ airwars_incidents_coord |>
   ylab("") +
   xlab("") +
   guides(fill=guide_legend(title="Clusters")) +
-  scale_fill_viridis_d(option="magma", 
-                       direction = -1, end=.90, begin=.30, alpha=.80) +
+  scale_fill_tron() +
   dark_theme_linedraw() +
   theme(legend.position="top",
         text = element_text(size = 12)) 
@@ -379,7 +367,6 @@ airwars_incidents_coord |>
 
 
 # plot the clusters on a map
-
 cs_key <- read_csv("~/repos/api-keys.csv") |> 
   filter(key_id == "Google_key") |> 
   pull(key)
@@ -395,31 +382,20 @@ gaza_map <- get_googlemap(center = c(lon = 34.3900, lat = 31.4100),  #"Gaza Stri
 
 gaza_map |> 
   ggmap() + 
-  stat_density2d(data = airwars_incidents_coord, 
+  stat_density2d(data = airwars_incidents_coord,
                  aes(x = incident_long, y = incident_lat,
-                     fill = cluster, alpha = ..level..), 
-                 size = 1, bins = 20, geom = 'polygon') +
-  scale_alpha(range = c(.05, .35), guide = FALSE) +
+                     fill = cluster, alpha = ..level..),
+                 size = 1, bins = 5,
+                 geom = 'polygon') +
+  scale_alpha(range = c(.01, .35), guide = FALSE) +
   geom_point(aes(x = incident_long, y = incident_lat , 
-                 color=cluster, size=children_killed), 
+                 color=cluster), 
              data=airwars_incidents_coord) +
-  scale_color_viridis_d() + 
-  scale_fill_viridis_d() +
+  scale_color_tron(alpha=.55) + 
+  scale_fill_tron() +
   dark_theme_linedraw() +
   theme(legend.position="top",
         text = element_text(size = 14))
-  
-
-  
-
-
-
-
-
-
-
-
-
 
 
 
