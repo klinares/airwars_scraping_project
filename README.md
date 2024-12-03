@@ -16,7 +16,7 @@ On October 7, 2023, Hamas and other Palestinian armed groups orchestrated a dead
 
 ### Documentation
 
-#### **Please find the documentation for this repo → [here](https://klinares.github.io/airwars_scraping_project/documentation/scraping_airwars.html).**
+#### **Please find the documentation for this repo → [here](https://klinares.github.io/airwars_scraping_project/main/documentation/scraping_airwars.html).**
 
 This document outlines all of the pieces of this project in order for others to be able to collaborates. Given that some of the packages used in the code, such as text, is easier to just follow the website's instruction on how to install. Otherwise we have written out our anaconda environment to a yml file here to be used more as a reference for package/library reference. Some packages will not be able to be built from conda and would require cran. In the near future, we will export out a full bash script that installs this environment using both the anaconda repository and cran.
 
