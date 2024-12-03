@@ -13,6 +13,8 @@ title: |
   <br>
   <br>
   <br>
+  
+  Scrapping civilian casualty incidents from Airwars
 
 author: Kevin Linares
 date: "`r format(Sys.time(), '%d %B, %Y')`"
@@ -30,9 +32,7 @@ toc: true
 toc-depth: 2
 ---
 
-# **Scrapping civilian casualty incidents from Airwars**
-
-\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
+# 
 
 <br>
 
