@@ -1,5 +1,5 @@
 # **Airwars Scrapping (Repository) Project**
-<img src="https://github.com/klinares/airwars_scraping_project/blob/main/documentation/images/gettyimages-17150741001-d04be3e7261c5b194006da8f78456cddc9234cb5.jpg" width="380" height = "260"> <img src="https://github.com/klinares/airwars_scraping_project/blob/main/documentation/images/gettyimages-1755788246_custom-7e01225eb0c26b87db12a36e0244339b23726d94.jpg" width="390" height="260">
+<img src="https://github.com/klinares/airwars_scraping_project/blob/main/documentation/images/gettyimages-17150741001-d04be3e7261c5b194006da8f78456cddc9234cb5.jpg" width="340" height = "220"> <img src="https://github.com/klinares/airwars_scraping_project/blob/main/documentation/images/gettyimages-1755788246_custom-7e01225eb0c26b87db12a36e0244339b23726d94.jpg" width="340" height="220">
 
 ##### [source of image (left),](https://www.npr.org/sections/health-shots/2023/11/24/1214534579/images-war-gaza-israel-vicarious-trauma-stress)  [source of image(right)](https://www.npr.org/sections/goatsandsoda/2023/11/10/1211672951/israel-hamas-war-mental-health-gaza-children)
 
