@@ -51,14 +51,11 @@ pacman::p_load(lubridate, RSQLite, DBI, zoo, ggthemes,
                ggdark, janitor,  jsonlite, viridis, tidyverse)
 ```
 
-
 <br>
 
 ### We store all of our data in a [SQLite database](https://github.com/klinares/airwars_scraping_project/tree/main/database) that can also be found in our github repository
 
-
 <br>
-
 
 ## Structure of SQlite database
 
@@ -81,9 +78,7 @@ mydb <- dbConnect(
 dbListTables(mydb) # print tables in database
 ```
 
-
 <br>
-
 
 ## Scraping Airwars Civilian Casualty Incidents
 
@@ -94,9 +89,7 @@ dbListTables(mydb) # print tables in database
 
 ![Example of Incident Metadata](images/airwars_metadata_example.png){fig-align="center" width="600"}
 
-
 <br>
-
 
 -   [Metadata table:]{style="color: forestgreen"} We scrape the main Airwars website parse information we need to build a table containing each incident's web-url (over 800 URLs), as seen in the example below.
 
@@ -128,9 +121,7 @@ airwars_incidents |>
   kable()
 ```
 
-
 <br>
-
 
 ## MoH Daily Casualties
 
@@ -148,9 +139,7 @@ tbl(mydb, "daily_casualties") |>
   kable()
 ```
 
-
 <br>
-
 
 ## Enriching Data with Reverse geocoding
 
@@ -164,7 +153,6 @@ tbl(mydb, "daily_casualties") |>
       head() |> 
       kable()
     ```
-
 
 <br>
 
@@ -195,5 +183,3 @@ airwars_incidents |>
          across(where(is.double), ~ round(.x, 2))) |> 
   kable()
 ```
-
-
