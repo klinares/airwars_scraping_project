@@ -1,26 +1,10 @@
 ---
-title: |
-  <br>
-  <br>
-  <br>
-  <br>
-  <br>
-  <br>
-  <br>
-  <br>
-  <br>
-  <br>
-  <br>
-  <br>
-  <br>
-  
-  Scrapping civilian casualty incidents from Airwars
+title: Scrapping civilian casualty incidents from Airwars
 
 author: Kevin Linares
 date: "`r format(Sys.time(), '%d %B, %Y')`"
 embed-resources: true
 editor: visual
-title-block-banner: /home/kevin/repos/airwars_scraping_project/documentation/images/unicef_gaza_crisis.png
 execute:
   warning: false
   message: false
@@ -32,7 +16,7 @@ toc: true
 toc-depth: 2
 ---
 
-# 
+# ![](images/unicef_gaza_crisis.png)
 
 <br>
 
