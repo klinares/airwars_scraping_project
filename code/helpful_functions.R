@@ -9,7 +9,9 @@ options(scipen=999,
 
 
 
-
+# this code chunk scrapes the necessary metadata for each incident
+## & creates a URL for scraping the actually page later. 
+### If the structure of the website changes, modify this chunk!
 scrape_metadata_fun <- function(website){
   
   tibble(
@@ -25,7 +27,7 @@ scrape_metadata_fun <- function(website){
         '//*[contains(concat( " ", @class, " " ), concat( " ", "meta-block", " " ))]//span') |> 
       html_text2() 
   ) |> 
-    # we need to reformat the variables and build out the url
+    # we need to reformat the variables and build out the URL
     mutate(Incident_id = str_to_lower(Incident_id),
            Incident_Date = str_to_lower(Incident_Date),
            Incident_Date = str_remove(Incident_Date, ","),
@@ -36,7 +38,7 @@ scrape_metadata_fun <- function(website){
 
 
 
-# Download each weburl and save
+# Download each web URL & save to a local folder, than push to github
 read_html_write_folder_fun <- function(meta_list, save_path){
     
     print(str_c("Reading URL file", " . . . for ", meta_list[[2]], 
@@ -52,7 +54,7 @@ read_html_write_folder_fun <- function(meta_list, save_path){
 
 
 
-# Read in URL web pages to process
+# Read in URL web pages from local folder to begin parsing
 read_url_fun <- function(file_path_name){
   file_names = list.files(file_path_name)
   
@@ -69,8 +71,8 @@ read_url_fun <- function(file_path_name){
 
 
 
-
-# parse assessment description text
+# 1st parse pass,
+# Parse assessment description text
 pull_assessment_fun <- function(web_content){
   
   tibble(
@@ -86,9 +88,10 @@ pull_assessment_fun <- function(web_content){
 
 
 
-
+# Use an LLM to calculate sentiment scores
 sentiment_score_fun <- function(incident_assessment){
-  
+
+  # shorten descriptions to confirm to the model limitation
   description = str_trunc(incident_assessment, 1600) 
   
   # use huggingface model to detect emotional tone of summary
@@ -99,21 +102,24 @@ sentiment_score_fun <- function(incident_assessment){
                  return_incorrect_results = TRUE,
                  function_to_apply = "softmax",
                  tokenizer_parallelism = TRUE,
-                 device = "gpu") |> 
+                 device = "gpu") |> # change to "cpu" if a gpu is not configured 
     pivot_wider(names_from = label_x, values_from=score_x)
   
 }
 
 
-
-# reverse coordinates
+# 2nd parse pass
+# reverse coordinates from nominatim 
 pull_coords_fun <- function(web_content){
-  
+
+ # read coordinates
   geo_coords = html_nodes(
     web_content[[2]], 
     xpath = 
       '//*[contains(concat( " ", @class, " " ), concat( " ", "lat-lng", " " ))]')
-  
+
+  # if coordinates are available, parse them out, query to nominatim, 
+  # return location type and boundary box
   if(length(geo_coords) > 0){
     dat = geo_coords |> 
       html_text2() |>
@@ -137,6 +143,7 @@ pull_coords_fun <- function(web_content){
         rename(lat_min=1, lat_max=2, long_min=3, long_max=4)
     )
 
+  # if there are no coordinates, create the new variables w/ NA
   } else{
     dat = tibble(incident_lat=NA, incident_long=NA,
                  target_type = NA,  target_address_type = NA,  
