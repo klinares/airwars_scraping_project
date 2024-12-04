@@ -1,6 +1,6 @@
 
 pacman::p_load(lubridate, RSQLite, DBI, zoo, ggthemes, 
-               factoextra, gridExtra, ggsci, ggmap,
+               factoextra, gridExtra, ggsci, ggmap, geosphere,
                ggdark, janitor,  jsonlite, viridis, tidyverse)
 
 options(scipen=999)
@@ -233,16 +233,13 @@ airwars_incidents |>
 
 
 
-
-
-
-
 # examining geographic data through hierarchical clusters
 
 
 # drop NA, select variables of interest and scale
 hclust_data <- airwars_incidents |> 
-  select( injured, killed, 
+  select( incident_lat, incident_long,
+    injured, killed, 
           anger:surprise, -joy) |> 
   drop_na() |> 
   mutate_all(scale)
@@ -266,7 +263,7 @@ dend_plot_fun <- function(mod, k_num) {
 }
 
 
-plot_list <- map(6:11, function(x){
+plot_list <- map(2:10, function(x){
   dend_plot_fun(hc_ward, x)
 }) 
 
@@ -280,8 +277,8 @@ do.call("grid.arrange",
 
 # examine cluster assignment proportion
 ## choose k-clusters to compare
-map(3:9, function(x){
-  factor(cutree(hc_ward, x)) |> 
+map(3:7, function(x){
+  factor(cutree(hc, x)) |> 
     as_tibble() |> 
     rename(cluster=1) |> 
     count(cluster) |> 
@@ -292,8 +289,8 @@ map(3:9, function(x){
 
 # write the cluster assignment back to the dataframe, prepare for plotting
 airwars_incidents_coord <- airwars_incidents |> 
-  mutate(cluster = factor(cutree(hc_ward, 3))) |> 
   filter(!is.na(incident_lat)) |> 
+  mutate(cluster = factor(cutree(hc, 3))) |> 
   mutate(
     # clean up strike type string
     strike_type = str_remove_all(strike_type, 
@@ -342,13 +339,14 @@ airwars_incidents_coord |>
           hospital = mean(hospital, na.rm = TRUE), 
           place_of_workship = mean(place_of_worship, na.rm = TRUE),
           refugee_camp = mean(refugee_camp, na.rm = TRUE), 
+          airstrike = mean(Airstrike, na.rm = TRUE),
           artillery = mean(Artillery, na.rm = TRUE)) |> 
   pivot_longer(-cluster) |>
   mutate(name=factor(name, levels=c("children_killed","women_killed","men_killed",
                                     "sadness", "fear", "disgust", "anger","surprise",
                                     "injured",
                                     "school", "hospital", "place_of_workship",
-                                    "refugee_camp", "artillery"))) |> 
+                                    "refugee_camp", "airstrike", "artillery"))) |> 
   ggplot(aes(x=cluster, y=value, fill=cluster)) +
   geom_bar(stat="identity", width=.5, position = "dodge") +
   facet_wrap(~name, scales = "free") +
@@ -385,17 +383,17 @@ gaza_map |>
   stat_density2d(data = airwars_incidents_coord,
                  aes(x = incident_long, y = incident_lat,
                      fill = cluster, alpha = ..level..),
-                 size = 1, bins = 5,
+                 size = 1, bins = 20,
                  geom = 'polygon') +
-  scale_alpha(range = c(.01, .35), guide = FALSE) +
+  scale_alpha(range = c(.01, .40), guide = FALSE) +
   geom_point(aes(x = incident_long, y = incident_lat , 
-                 color=cluster), 
+                 color=cluster), size=.2,
              data=airwars_incidents_coord) +
-  scale_color_tron(alpha=.55) + 
+  scale_color_tron(alpha=.75) + 
   scale_fill_tron() +
   dark_theme_linedraw() +
   theme(legend.position="top",
-        text = element_text(size = 14))
+        text = element_text(size = 16))
 
 
 
