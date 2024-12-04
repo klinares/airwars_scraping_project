@@ -9,7 +9,7 @@ options(scipen=999,
 
 
 
-# this code chunk scrapes the necessary metadata for each incident
+# This code chunk scrapes the necessary metadata for each incident
 ## & creates a URL for scraping the actually page later. 
 ### If the structure of the website changes, modify this chunk!
 scrape_metadata_fun <- function(website){
