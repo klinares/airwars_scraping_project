@@ -1,5 +1,5 @@
 ---
-title: Text Analysis of the Conflict in Gaza Reveals the Civilian Impact
+title: Open-Source Data Analysis of the Conflict in Gaza Reveals the Civilian Impact
 
 author: Kevin Linares
 date: "`r format(Sys.time(), '%d %B, %Y')`"
@@ -481,7 +481,7 @@ gaza_map |>
 
 ```
 
-## Discussion 
+## Discussion
 
 We analyze casualty data from the Gaza conflict to assess disparities among civilians while considering both geographic and non-geographic factors. By leveraging open-source data from Airwars and enriching it with additional sources like reverse geocoding and text classification, we demonstrate the potential of open-source data to illuminate the civilian impact of the Gaza conflict.
 

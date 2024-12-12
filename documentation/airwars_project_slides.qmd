@@ -6,10 +6,13 @@ title: |
    <br>
     <br>
      <br>
+     <br>
+     <br>
+     <br>
 
-  Text Analysis of the Conflict in Gaza Reveals the Civilian Impact
+  Open-Source Data Analysis of the Conflict in Gaza Reveals the Civilian Impact
   
-author: Kevin Linares  (https://github.com/klinares/airwars_scraping_project)
+author: Kevin Linares 
 embed-resources: true
 editor: visual
 format:
@@ -128,7 +131,7 @@ pop_data <- rbind(Total, Children, Men, Women) |>
 ```{css, echo=FALSE}
 
 .title {
-  font-size: 85px !important;
+  font-size: 65px !important;
   color: white !important;
   font-weight: bold;
   font-family: "Roboto Condensed";
