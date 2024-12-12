@@ -5,7 +5,7 @@
 source("~/repos/airwars_scraping_project/code/helpful_functions.R")
 
 pacman::p_load(rvest, lubridate, RSQLite, DBI, text, geosphere, xml2,
-               tictoc, glue, jsonlite, tidyverse, data.table)
+               glue, jsonlite, tidyverse, data.table)
 
 
 # ________________________ Build Metadata table  ________________________
@@ -96,7 +96,6 @@ daily_casualties <- fromJSON(daily_casualties_api) |>
 
 
 # ___________________ # write results to database table  _______________________
-
 # connect to database
 mydb <- dbConnect(SQLite(), "~/repos/airwars_scraping_project/database/airwars_db.sqlite")
 

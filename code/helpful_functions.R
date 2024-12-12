@@ -34,21 +34,32 @@ scrape_metadata_fun <- function(website){
            Incident_Date = str_replace_all(Incident_Date, " ", "-"),
            link = glue(
              "https://airwars.org/civilian-casualties/{Incident_id}-{Incident_Date}/"))
-}
+} |> 
+  # only keep distinct incidents
+  distinct()
 
 
 
 # Download each web URL & save to a local folder, than push to github
 read_html_write_folder_fun <- function(meta_list, save_path){
     
-    print(str_c("Reading URL file", " . . . for ", meta_list[[2]], 
-                "event occured on ", meta_list[[1]]) )
+  URL  = tryCatch(read_html(meta_list[[3]]), 
+                  error = function(e) {return(NA)} )
   
-    write_html(read_html(meta_list[[3]]), # html content
+  if(length(URL) < 2){
+    print(str_c("Reading URL file", " . . . for ", meta_list[[2]], 
+                " request failed ", meta_list[[1]]) )
+  } else {
+  
+    print(str_c("Reading URL file", " . . . for ", meta_list[[2]], 
+                " event occured on ", meta_list[[1]]) )
+  
+    write_html(URL, # html content
                str_c(save_path, 
                      str_c(meta_list[[2]], # id number
                            ".html"))
     )
+  }
 }
   
 

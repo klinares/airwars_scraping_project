@@ -24,7 +24,7 @@ title-slide-attributes:
 
 ```{r, echo=FALSE}
 pacman::p_load(lubridate, RSQLite, DBI, zoo, ggthemes, patchwork,
-               factoextra, gridExtra, ggmap,
+               factoextra, gridExtra, ggmap, ggsci,
                ggdark, janitor,  jsonlite, viridis, tidyverse)
 
 options(scipen=999)
@@ -48,6 +48,7 @@ airwars_incidents <- tbl(mydb, "airwars_incidents") |>
   clean_names() |> 
   # convert NA to 0
   mutate(killed = ifelse(is.na(killed), 0, killed),
+    max_killed = ifelse(is.na(max_killed), 0, max_killed),
          injured = str_remove(civilians_reported_injured, ".*–"),
          injured = ifelse(is.na(injured), 0, injured),
          injured = as.numeric(injured),
@@ -55,12 +56,11 @@ airwars_incidents <- tbl(mydb, "airwars_incidents") |>
          incident_long = as.numeric(incident_long),
          children_killed = ifelse(is.na(children_killed), 0, children_killed),
          women_killed = ifelse(is.na(women_killed), 0, women_killed),
-         men_killed = killed - (children_killed + women_killed),
+         men_killed = max_killed - (children_killed + women_killed),
          men_killed = ifelse(is.na(men_killed), 0, men_killed)) |> 
   rename(Incident_id = incident_id) |> 
   # add dates
   left_join(airwars_meta |> select(Incident_id, Incident_Date))
-
 
 
 daily_casualties <- tbl(mydb, "daily_casualties") |> 
@@ -72,11 +72,11 @@ daily_casualties <- tbl(mydb, "daily_casualties") |>
 
 # combine daily casualties with airwars
 incidents_cum <- airwars_incidents |> 
-  select(Incident_Date, killed, children_killed, women_killed) |> 
+  select(Incident_Date, max_killed, children_killed, women_killed) |> 
   mutate(across(where(is.integer),~ replace_na(.x, 0))) |> 
   group_by(Incident_Date) |> 
-  reframe(killed = sum(killed), children_killed = sum(children_killed), 
-                       women_killed = sum(women_killed)) |> 
+  reframe(killed = sum(max_killed), children_killed = sum(children_killed), 
+          women_killed = sum(women_killed)) |> 
   mutate(Total = cumsum(killed),
          Children = cumsum(children_killed),
          Women = cumsum(women_killed)) |> 
@@ -92,7 +92,7 @@ incidents_cum <- airwars_incidents |>
 # demographics in Gaza
 # source https://www.cia.gov/the-world-factbook/countries/gaza-strip/#people-and-society
 Total <- 2141643
-Children = .45 * Total
+Children = .47 * Total
 Men = (Total - Children) * .51
 Women = Total - (Children + Men)
 
@@ -111,9 +111,9 @@ pop_data <- rbind(Total, Children, Men, Women) |>
 ::: {.column width="60%" style="font-size: 36px"}
 -   **Background**: 10/7/2023 Hamas surprise attack on Israel.
 
-    -   Estimated Palestinian dead \~44,000 (60% children & women).
+    -   Estimated Palestinian dead \~45,000 (66% children & women).
 
--   **Problem**: Hamas Ministry of Health (MoH) casualties, unconfirmed. 
+-   **Problem**: Hamas Ministry of Health (MoH) casualties, unconfirmed.
 
     -   **Claim**: "Women & children disproportionately killed" [UN-OHCHR](https://www.ohchr.org/en/press-releases/2024/05/onslaught-violence-against-women-and-children-gaza-unacceptable-un-experts)
 
@@ -148,12 +148,13 @@ pop_data <- rbind(Total, Children, Men, Women) |>
 ::: {.column width="50%" style="font-size:30px"}
 **Data Source**: [Airwars](https://airwars.org/conflict/israel-and-gaza-2023/) tracks casualties from conflicts.
 
-1.  **Web Scrape**: \~ 800 incidents (\~9,000 deaths), & store in SQLite database.
+1.  **Web Scrape**: \~ 900 incidents (\~11,000 deaths), & store in SQLite database.
 
 2.  **Reverse Geo-coding**: Query [Nominatim](https://nominatim.org/release-docs/develop/api/Reverse/) API with coordinates, return site type (school, hospital).
 
-3.  **Sentiment Analysis**: Derive emotional tone from assessments. 
-      -   [DistilRoBERTa-base](https://huggingface.co/j-hartmann/emotion-english-distilroberta-base), classifies text into Ekman's 6 basic emotions.
+3.  **Sentiment Analysis**: Derive emotional tone from assessments.
+
+    -   [DistilRoBERTa-base](https://huggingface.co/j-hartmann/emotion-english-distilroberta-base), classifies text into Ekman's 6 basic emotions.
 
 4.  **Clustering Analysis**: Cluster incidents geographically to discern civilian casualty patterns.
 :::
@@ -164,7 +165,6 @@ pop_data <- rbind(Total, Children, Men, Women) |>
 :::::
 
 ## Results: Casualty Rate, Sentiment Analysis
-
 
 ```{r}
 #| echo: FALSE
@@ -191,9 +191,9 @@ p1 <- incidents_cum |>
   select(data_source, name, unadjusted, adjusted) |> 
   reshape2::melt(id=c("data_source", "name")) |> 
   mutate(name = factor(name, 
-                       levels=c("Men", 
+                       levels=c("Children", 
                                 "Women", 
-                                "Children" ))) |> 
+                                "Men" ))) |> 
   filter(data_source == "Airwars") |> 
   ggplot(aes(x=variable, y=value, fill=name)) +
   geom_bar(position="stack", stat="identity") +
@@ -202,7 +202,7 @@ p1 <- incidents_cum |>
   ylab("") +
   xlab("") +
   scale_y_continuous(labels = scales::percent) +
-  guides(fill=guide_legend(title="", reverse = FALSE)) +
+  guides(fill=guide_legend(title="", reverse = TRUE)) +
   scale_fill_viridis_d(option="cividis", direction = -1,
                        alpha=.80, end =.70, begin=.15) +
   dark_theme_linedraw() +
@@ -242,16 +242,18 @@ p1 + plot_spacer() + p2 + plot_layout(widths = c(4, .01, 3))
 
 ::::: columns
 ::: {.column width="50%" style="font-size:30px"}
-
 ```{r}
 #| echo: FALSE
 #| fig-width: 6
 #| fig-height: 7
 
+top_4_emo <- c("disgust", "anger", "fear", "sadness")
+
+
 # drop NA, select variables of interest and scale
 hclust_data <- airwars_incidents |> 
   select(incident_lat, incident_long, injured, killed,
-        anger:surprise,  -joy) |> 
+        all_of(top_4_emo)) |> 
   drop_na() |> 
   mutate_all(scale)
 
@@ -264,7 +266,7 @@ hc_ward <- hclust(hclust_d, method = "ward.D2")
 
 
 # write the cluster assignment back to the dataframe, prepare for plotting
-airwars_incidents_coord <- airwars_incidents |>
+airwars_incidents_coord <- airwars_incidents |> 
   filter(!is.na(incident_lat)) |> 
   mutate(cluster = factor(cutree(hc_ward, 3))) |> 
   mutate(
@@ -278,12 +280,14 @@ airwars_incidents_coord <- airwars_incidents |>
                                 strike_type)),
     
     # clean up target_type
-    target_type = str_replace_all(target_type, "secondary|tertiary|college", "school"),
+    target_type = str_replace_all(target_type, 
+                                  "secondary|tertiary|college", "school"),
     target_type = str_replace(target_type, "pharmacy", "hospital"),
     target_type = ifelse(civilian_infrastructure=="IDP or refugee camp", 
                          "IDP or refugee camp", target_type),
     target_type = ifelse(target_type %in% 
-                           c("residential", "school", "hospital", "place_of_worship",
+                           c("residential", "school", 
+                             "hospital", "place_of_worship",
                              "IDP or refugee camp"),
                          target_type, "other"),
     # make qualitative variables
@@ -299,32 +303,42 @@ airwars_incidents_coord <- airwars_incidents |>
 # plot cluster with averages
 airwars_incidents_coord |> 
   group_by(cluster) |> 
-  reframe(sadness = mean(sadness, na.rm = TRUE), 
-          fear = mean(fear, na.rm = TRUE), 
-          disgust = mean(disgust, na.rm = TRUE), 
-          anger = mean(anger, na.rm = TRUE), 
-          men_killed = mean(men_killed, na.rm = TRUE), 
-          children_killed = mean(children_killed, na.rm = TRUE), 
-          women_killed = mean(women_killed, na.rm = TRUE),
-          school = mean(school, na.rm = TRUE), 
-          hospital = mean(hospital, na.rm = TRUE), 
-          place_of_workship = mean(place_of_worship, na.rm = TRUE),
-          refugee_camp = mean(refugee_camp, na.rm = TRUE), 
-          artillery = mean(Artillery, na.rm = TRUE)) |> 
+  reframe(
+    Injured = sum(injured),
+    Killed = sum(killed),
+    Children = sum(children_killed)/sum(killed), 
+    Women = sum(women_killed)/sum(killed), 
+    Men = sum(men_killed)/sum(killed),
+    Sadness = mean(sadness, na.rm = TRUE), 
+    Fear = mean(fear, na.rm = TRUE), 
+    Disgust = mean(disgust, na.rm = TRUE), 
+    Anger = mean(anger, na.rm = TRUE), 
+    School = sum(school), 
+    Hospital = sum(hospital), 
+    Place_of_Worship = sum(place_of_worship),
+    Refugee_Camp = sum(refugee_camp), 
+  ) |> 
+  mutate(Injured = Injured / sum(Injured), 
+         Killed = Killed/sum(Killed),
+         School = School/sum(School), 
+         Hospital = Hospital/sum(Hospital), 
+         Place_of_Worship = Place_of_Worship/sum(Place_of_Worship),
+         Refugee_Camp = Refugee_Camp/sum(Refugee_Camp)) |> 
   pivot_longer(-cluster) |>
-  mutate(name=factor(name, levels=c("children_killed","women_killed","men_killed",
-                                    "sadness", "fear", "disgust", "anger",
-                                    "school", "hospital", "place_of_workship",
-                                    "refugee_camp", "artillery"))) |> 
+  mutate(name = str_replace_all(name, "_", " "),
+         name=factor(name, 
+                     levels=c("Injured", "Killed", "Children","Women","Men",
+                                    "Sadness", "Fear","Anger",  "Disgust", 
+                                    "School", "Hospital", 
+                                    "Place of Worship", "Refugee Camp"))) |> 
   ggplot(aes(x=cluster, y=value, fill=cluster)) +
   geom_bar(stat="identity", width=.5, position = "dodge") +
-  facet_wrap(~name, scales = "free", ncol=3) +
+  facet_wrap(~name, scales = "free") +
   theme_hc() +
   ylab("") +
   xlab("") +
   guides(fill=guide_legend(title="Clusters")) +
-  scale_fill_viridis_d(option="magma", direction = -1,
-                        alpha=.90, end =.20, begin=.75)  +
+  scale_fill_tron() +
   dark_theme_linedraw() +
   theme(legend.position="top",,
         text = element_text(size = 16),
@@ -369,10 +383,9 @@ gaza_map |>
   geom_point(aes(x = incident_long, y = incident_lat , 
                  color=cluster), size=.6,
              data=airwars_incidents_coord, show.legend = FALSE) +
-  scale_color_viridis_d(option="magma", direction = -1,
-                        alpha=.85, end =.20, begin=.75)  +  
-  scale_fill_viridis_d(option="magma", direction = -1,
-                       end =.20, begin=.75)  +  
+  scale_color_tron(alpha=.75) + 
+  scale_fill_tron() +
+  dark_theme_linedraw() + 
   theme(legend.position="none",
         text = element_text(size = 16))
 

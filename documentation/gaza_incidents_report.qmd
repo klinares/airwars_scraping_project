@@ -1,0 +1,496 @@
+---
+title: Text Analysis of the Conflict in Gaza Reveals the Civilian Impact
+
+author: Kevin Linares
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+embed-resources: true
+editor: visual
+execute:
+  warning: false
+  message: false
+  error: false
+  tidy: true
+format: html
+theme: lumen
+toc: true
+toc-depth: 2
+---
+
+# ![](images/unicef_gaza_crisis.png){width="600"}
+
+```{r}
+#| echo: FALSE
+#|
+
+pacman::p_load(lubridate, RSQLite, DBI, zoo, ggthemes, htmlTable,
+               factoextra, gridExtra, ggsci, ggmap, knitr,
+               ggdark, janitor, jsonlite, viridis, tidyverse)
+
+options(scipen=999)
+
+# connect to database
+mydb <- dbConnect(
+  RSQLite::SQLite(), 
+  "~/repos/airwars_scraping_project/database/airwars_db.sqlite")
+
+
+
+# read in data tables
+airwars_meta <- tbl(mydb, "airwars_meta") |> 
+  as_tibble() |> 
+  # convert Incident_Date to date format
+  mutate(Incident_Date = as_date(Incident_Date)) |> 
+  arrange(Incident_Date)
+
+
+airwars_incidents <- tbl(mydb, "airwars_incidents") |> 
+  as_tibble() |> 
+  clean_names() |> 
+  # convert NA to 0
+  mutate(killed = ifelse(is.na(killed), 0, killed),
+    max_killed = ifelse(is.na(max_killed), 0, max_killed),
+         injured = str_remove(civilians_reported_injured, ".*–"),
+         injured = ifelse(is.na(injured), 0, injured),
+         injured = as.numeric(injured),
+         incident_lat = as.numeric(incident_lat),
+         incident_long = as.numeric(incident_long),
+         children_killed = ifelse(is.na(children_killed), 0, children_killed),
+         women_killed = ifelse(is.na(women_killed), 0, women_killed),
+         men_killed = max_killed - (children_killed + women_killed),
+         men_killed = ifelse(is.na(men_killed), 0, men_killed)) |> 
+  rename(Incident_id = incident_id) |> 
+  # add dates
+  left_join(airwars_meta |> select(Incident_id, Incident_Date))
+
+
+daily_casualties <- tbl(mydb, "daily_casualties") |> 
+  as_tibble() |> 
+  mutate(Incident_Date = lubridate::as_date(Incident_Date)) |> 
+  mutate(data_source = "MoH") 
+
+
+
+# combine daily casualties with airwars
+incidents_cum <- airwars_incidents |> 
+  select(Incident_Date, max_killed, children_killed, women_killed) |> 
+  mutate(across(where(is.integer),~ replace_na(.x, 0))) |> 
+  group_by(Incident_Date) |> 
+  reframe(killed = sum(max_killed), children_killed = sum(children_killed), 
+          women_killed = sum(women_killed)) |> 
+  mutate(Total = cumsum(killed),
+         Children = cumsum(children_killed),
+         Women = cumsum(women_killed)) |> 
+  select(Incident_Date, Total, Children, Women) |> 
+  pivot_longer(-c("Incident_Date")) |> 
+  mutate(name = fct_reorder(name, value, .fun = max),
+         data_source = "Airwars") |> 
+  full_join(daily_casualties) |> 
+  arrange(Incident_Date)
+
+
+
+# demographics in Gaza
+# source https://www.cia.gov/the-world-factbook/countries/gaza-strip/#people-and-society
+Total <- 2141643
+Children = .47 * Total
+Men = (Total - Children) * .51
+Women = Total - (Children + Men)
+
+pop_data <- rbind(Total, Children, Men, Women) |> 
+  as.data.frame() |> 
+  rownames_to_column() |> 
+  rename(name=1, pop=2) |> 
+  mutate(pop = as.integer(pop))
+
+```
+
+Github Repository for this project can found at <https://github.com/klinares/airwars_scraping_project>
+
+## Introduction
+
+The recent escalation of violence between Israel and Hamas has resulted in a devastating humanitarian crisis in Gaza. The Gaza Strip is a very narrow coastal territory that measures 25 miles long and is part of the State of Palestine, yet it is one of the most densely populated territories in the world with almost 2.2 million inhabitants (47% children) governed by the militant Islamic group, Hamas. This conflict has led to a significant loss of life, with reports indicating a disproportionate number of civilian casualties, including women and children. While the exact figures from the Hamas Ministry of Health (MoH) remain disputed, the scale of the tragedy is undeniable.
+
+In the face of such a complex and rapidly evolving situation, the ability to accurately assess the impact of the conflict on civilian populations is crucial. Traditional methods of data collection, such as relying solely on official government sources, can be limited by biases and lack of transparency. However, the rise of open-source data has opened up new possibilities for analyzing and understanding conflicts. We aim to leverage open-source data to explore its utility in highlighting patterns of civilian casualties in Gaza. Specifically, we will investigate the following research question: **How do disparities of Palestinian civilian casualties in Gaza relate to geographic locations, types of attacks, and emotional assessments of these events?** By employing data science tools to open-source data we hope to address this question and contribute to a better understanding of the conflict's impact on the civilian population.
+
+<br>
+
+## Methodology
+
+[Airwars](https://airwars.org/conflict/israel-and-gaza-2023/), a UK-based non-profit organization dedicated to investigating civilian casualties in armed conflicts. Airwars meticulously collects and analyzes information from various sources, including social media, news reports, and official statements to document and assess the impact on civilians. Their dataset provides a rich and detailed record of attacks in Gaza, including information on the types of attack, the number of casualties, and the specific locations targeted. When Airwars determines that there has been an attack with one or more civilian casualties due to a conflict, the open source information is then translated into English, standardized into a report, and archived on their website. Airwars defines each attack as a separate event, called an incident. Airwars maintains metadata for every incident and are presented as baseball cards which can be seen in Figure 1.
+
+**Figure 1.** Airwars compiles conflict incidents as of October 7, 2023.
+
+![](images/airwars_metadata_example.png){fig-align="center" width="600"}
+
+#### *Scrapping and Parsing Airwars Web-Pages*
+
+We scrap metadata from the Airwars website and parse out each incident's date of attack and unique identifier. We use this information to build each incident's Web URL resulting in 859 incidents accounting for over 10,000 civilian casualties since October 07, 2023. We than scrap each incident's web-page for the following information: How many alleged civilians were killed or injured, the children and non-children casualty breakdown, type of attack (airstrike, artillery, etc), geocoordinates when available, and the incident's assessment detailing what transpired during the incident, whom was known to be involved and the victims it produced. Figure 2 presents what a typical incident web-page looks like. We further clean the data to parse string fields and create variables containing casualty quantities by minimum or maximum killed, counts by men, women, and children, and latitude and longitude information. Our final database contains 28 quantitative and qualitative variables all stored in a SQLite database on our Github repository.
+
+**Figure 2.** Each Incident carries detail information about what transpired on that day.
+
+[![Assessments are written by Airwars researchers after reporting is translated from Arabic to English.](images/airwars_incident_example.png){fig-align="center" width="620"}](https://airwars.org/civilian-casualties/ispt120524j-may-12-2024/)
+
+### *MoH Daily Casualties*
+
+The Palestine Dataset publishes daily Gaza casualty counts acquired from the MoH; however, they do not make a distinction whether a casualty was a civilian or militant, and we expect MoH counts to be much higher than Airwars.[^1] We use the [Palestine Datasets API](https://data.techforpalestine.org/api/v2/casualties_daily.json) and data comes through a JSON file which we parse into our database after some re-structuring. This data allowed us to explore cumulative casualty counts side by side with the Airwars data.
+
+[^1]: Note. Confidence is low to moderate since the data comes from the Hamas MoH.
+
+#### *Cumulative Casualties*
+
+```{r}
+#| echo: FALSE
+
+total_casualties <- incidents_cum |>
+  group_by(data_source) |>  
+  filter(Incident_Date == max(Incident_Date)) |> 
+  select(-Incident_Date) |>  
+  rename(Source = data_source) |> 
+  pivot_wider(names_from = name, values_from=value) |> 
+  mutate(Men = Total - (Children + Women)) |> 
+  ungroup() |> 
+  add_row(Source="Population", pop_data |> 
+            pivot_wider(names_from = name, values_from = pop)) |> 
+  mutate(across(where(is.double), ~ prettyNum(.x, big.mark = ",")))
+```
+
+Since October of last year, Airwars has captured a total of `r total_casualties[[1, 2]]` confirmed civilian casualties while the MoH reports a total of `r total_casualties[[2, 2]]` casualties. After compiling our database, we were able to quickly estimate daily cumulative casualties by data source reported in Table 1. Population estimates in Gaza for children, men, and women as of 2022 are also presented in this table. .
+
+```{r}
+#| echo: FALSE
+
+total_casualties |> 
+  htmlTable(caption = 
+              "Table 1: Recent casualties cumulative count by Airwars and MoH.")
+
+```
+
+<br>
+
+We present the total cumulative casualty breakdown in Figure 3. We estimate from the Airwars data that 27 percent of casualties were children compared to the MoH estimate of 39 percent. When we adjust by population size $\theta_{adjusted_j} = \text{propotion killed}_j \times \text{proportion of population}_j = \frac{\theta_j}{\sum_{j=1}^3\theta}$, we note that the Airwars casualty estimate for children increases to 40 percent and 53 percent for MoH. Among women, the casualty estimates decrease, as well as for men. This data suggest that once we account for the proportion of children in the population which is 47 percent, both Airwars and MoH underestimate the impact on children.
+
+**Figure 3.** Casualties reported by Airwars and MoH adjusted by population size.
+
+```{r}
+#| echo: FALSE
+# estimate casualty rate
+incidents_cum |> 
+  group_by(data_source) |> 
+  filter(Incident_Date == max(Incident_Date)) |> 
+  pivot_wider(names_from=name, values_from=value) |> 
+  mutate(Men = Total - (Children + Women)) |> 
+  select(-Total, -Incident_Date) |> 
+  pivot_longer(-data_source) |> 
+  left_join(pop_data) |> 
+  # calculate casualty rate normalized by per 1000
+  mutate(casualty_rate = value/sum(value),
+         pop_prop = pop/sum(pop),
+         casualty_rate_adj =  (casualty_rate * pop_prop) * 1000,
+         casualty_rate_adj = casualty_rate_adj / sum(casualty_rate_adj),
+         name = fct_reorder(name, casualty_rate_adj, .fun=min),
+  ) |> 
+  ungroup() |> 
+  select(data_source, name, casualty_rate, casualty_rate_adj) |> 
+  reshape2::melt(id=c("data_source", "name")) |> 
+  mutate(name = factor(name, 
+                       levels=c("Children", 
+                                "Women", 
+                                "Men" )),
+         variable = str_replace_all(variable, "_", " ")) |>
+  ggplot(aes(x=data_source, y=value, fill=name)) +
+  geom_bar(position="stack", stat="identity") +
+  geom_text(aes(label = round(value, 2)*100), 
+            position = position_fill(vjust=.5), size=4)  +
+  facet_wrap(~variable) +
+  #coord_flip() +
+  ylab("") +
+  xlab("") +
+  scale_y_continuous(labels = scales::percent) +
+  guides(fill=guide_legend(title="", reverse = TRUE)) +
+  scale_fill_viridis_d(option="cividis", direction = -1,
+                       alpha=.80, end =.70, begin=.15) +
+  dark_theme_linedraw() +
+  theme(legend.position="top",
+        text = element_text(size = 14)) 
+```
+
+### *Enriching Data with Reverse Geocoding*
+
+When geocoorindates of an attack are available, Airwars includes this in the incident's web-page. We leverage these latitude and longitude points to find the nearest address using the [Nominatim open street map API](https://nominatim.org/release-docs/develop/api/Reverse/). Almost two thirds of incidents in our database contained geocoordinates, and we were able to enrich these incidents with the type of location where the attack occurred. We found many types of locations, and we decided to classify them into the following themes: Schools, places of worship, hospitals, refugee camps, or other. This new information was also uploaded into our database.
+
+<br>
+
+## Sentiment Analysis
+
+To address the emotional assessments of these incidents in our our reserach question, we conducted sentiment analysis using a text classification model [j-hartmann/emotion-english-distilroberta-base](https://huggingface.co/j-hartmann/emotion-english-distilroberta-base?text=Oh+wow.+I+didn%27t+know+that.)[^2]. This model analyzes text for Ekman's 6 basic emotions, in addition to a neutral category, that are common in psychological work on emotions. Using sentiment analysis in this way allows us to explore the emotional tone across incidents for further exploration. For each incident we get 7 emotional scores and all sum to 1.[^3] Figure 4 smooths out the sentiment scores of each emotion. Incident emotion scores are averaged by day in this plot and show how these emotional tones vary, and while sadness is the most prominent emotion, fear increased by January through March 2024.
+
+[^2]: This model is trained independently from the Airwars data on a balanced subset from the datasets listed above (2,811 observations per emotion, i.e., nearly 20k observations in total). Eighty percent of this balanced subset is used for training and 20% for evaluation. The evaluation accuracy is 66% (vs. the random-chance baseline of 1/7 = 14%).
+
+[^3]: Given that we have over 800 assessments we decided to use the package text, while it allows us the ability to use a laptop GPU (GTX 4070) to process these models for each incident. This resulted in large processing gains. Text is an R-package for analyzing natural language with transformers from HuggingFace using Natural Language Processing and Machine Learning. The installation for Text is tricky as the right python libraries must be installed. To compile models with the GPU, we learned that nvidia cuda drivers must be installed for version 12.1. Additionally, we could only get this to work via anaconda within Ubuntu 24.04 installed through WSL2 on Windows 11. Ubuntu 24.10 comes with a kernal that forces cuda 12.8 to be installed and did not work for us in a dual boot system.
+
+**Figure 4.** Sentiment analysis reveals negative emotions are prominent among incidents.
+
+```{r}
+#| echo: FALSE
+
+# sentiment analysis plot
+airwars_incidents |> 
+  select(Incident_Date, anger:surprise) |> 
+  group_by(Incident_Date) |> 
+  reframe(across(where(is.double), ~ mean(.x))) |> 
+  pivot_longer(-Incident_Date) |> 
+  mutate(name = fct_reorder(name, value, .fun=max)) |> 
+  ggplot(aes(x=Incident_Date, y=value , fill=name)) +
+  geom_area(stat = "smooth", method = "loess", position="stack") +
+  scale_y_continuous(labels = scales::percent) +
+  scale_x_date(date_labels="%b %y",date_breaks  ="2 month") +
+  ylab("Scores") +
+  xlab("") +
+  guides(fill=guide_legend(title="")) +
+  scale_fill_viridis_d(option="mako", direction = -1,
+                        alpha=.99, end =.99, begin=.35)  +
+  dark_theme_linedraw() +
+  theme(text = element_text(size = 14))
+```
+
+The emotion scores from the sentiment analysis allows us to explore how it relates to the casualty breakdown. Each incident's highest emotion score was used to create a new variable containing the highest emotion assigned to each incident. Figure 5 plots casualty averages by men, women, and children for the top four negative emotions. Incidents classified as sadness had the highest average child casualty at 3.8 and women casualty at 2.3. Incidents classified as anger had the highest average casualties among men of 14. This exploration between emotion scores and average casualties suggest that language models when classfying emotions may distinguish between age and gender.
+
+**Figure 5.** Average casualty breakdown vary by negative emotions.
+
+```{r}
+#| echo: FALSE
+
+# next assign each incident highest emotion
+airwars_incidents <- airwars_incidents |> 
+  select(Incident_id, anger:surprise) |> 
+  pivot_longer(-Incident_id) |> 
+  group_by(Incident_id) |> 
+  filter(value == max(value)) |> 
+  ungroup() |> 
+  select(Incident_id, name) |> 
+  rename(highest_emo = name) |> 
+  right_join(airwars_incidents)
+
+
+
+# average kills by top 4 emotions
+top_4_emo <- c("disgust", "anger", "fear", "sadness")
+
+# pivot data to prepare for plotting
+highest_emo_dat <- airwars_incidents |> 
+  filter(highest_emo %in% top_4_emo) |> 
+  select(highest_emo, children_killed, women_killed, men_killed) |> 
+  pivot_longer(-highest_emo) |> 
+  mutate(name = str_replace(name, "_", " "))
+
+means <- highest_emo_dat |> 
+  group_by(highest_emo, name) |> 
+  reframe(value = mean(value))
+
+# jitter plot with means of incidents by emotion
+highest_emo_dat |> 
+  ggplot(aes(x=highest_emo, y=value, color=highest_emo)) + 
+  geom_jitter(width=0.3, alpha=.72, size=.8) +
+  facet_wrap(~name, scale="free") +
+  stat_summary(fun="mean", color="dodgerblue", alpha=.8, size=.2) +
+  geom_text(data = means, show.legend = FALSE,
+           aes(label = round(value, 1)),
+           vjust = -11, hjust = .5) +
+  ylab("Average Incident") +
+  xlab("") +
+  scale_color_viridis_d(option="mako", direction = -1,
+                       alpha=.99, end =.99, begin=.35) +
+  guides(color=guide_legend(title="")) +
+  dark_theme_linedraw() +
+  theme(size=16, legend.position="top", axis.text.x=element_blank()) 
+```
+
+## Hierarchical Clustering Analysis
+
+The objective of this study is to uncover patterns of incidents that may account for variations in casualties among children, women, and men. We propose a hierarchical clustering model to investigate geographic and non-geographic factors, such as injuries, deaths, and emotional tone that may be associated with these disparities. Hierarchical clustering is a powerful tool for exploring data and discovering hidden patterns. It is particularly useful when we do not know the number of clusters in advance, as it allows you to visualize the clustering process and decide on the optimal number of clusters based on the dendrogram. We make no hypothesis as to how many clusters should emerge from this data, but instead we visualize dendograms to explore the potential number of clusters to further analyze.
+
+We are interested in clustering incidents and select the following indicators: Latitude, longitude, top four negative emotion scores, the number of casualties, and the number of injured resulting in eight indicators. We choose not to include casualties broken down by children alongside total casualties since they are dependent of each other. Figure 6 plots dendograms for plausible K-cluster sizes and we determine that models with four or more clusters tend to have small splits which may not generalize to the population given that these account for about less than one percent of all incidents we observe. Instead, we prefer a parsimonious model that is more broad in its application considering that we are interested in exploring other variables related to incident casualties; therefore, we choose k=3 for further analysis.
+
+**Figure 6.** Hierarchical clustering dendograms for model with two to nine clusters.
+
+```{r}
+#| echo: FALSE
+
+# drop NA, select variables of interest and scale
+hclust_data <- airwars_incidents |> 
+  select( incident_lat, incident_long,
+    injured, killed, all_of(top_4_emo)) |> 
+  drop_na() |> 
+  mutate_all(scale)
+
+# create distance matrix
+hclust_d <- dist(hclust_data)
+
+# conduct clustering
+hc_ward <- hclust(hclust_d, method = "ward.D2")
+
+dend_plot_fun <- function(mod, k_num) {
+  
+  fviz_dend(mod, k=k_num, 
+            lwd = 0.8, , k_colors = "tron", rect = TRUE, rect_border = "tron", 
+            rect_fill = TRUE, show_labels = FALSE, cex = 0.75,  # label size
+            #c("#2E9FDF", "#00AFBB", "#E7B800", "#FC4E07"),
+            color_labels_by_k = TRUE,  # color labels by groups
+            ggtheme = dark_theme_linedraw(), 
+            main = str_c("Cluster Dendrogram k = ", k_num)
+  )
+}
+
+
+plot_list <- map(2:9, function(x){
+  dend_plot_fun(hc_ward, x)
+})
+
+
+# plot dendogram for each cluster
+do.call("grid.arrange",
+        c(plot_list, ncol =
+            floor(sqrt( length(plot_list)) )
+        )
+)
+```
+
+By enriching the incident data through our previous reverse geocoding process, we now have the ability to also explore how our clusters related to qualitative variables such as type of location of the attack. We plot the marginal probabilities of each variable by cluster in Figure 7. Cluster 1 contained incidents with the highest concentrations of child and women deaths with most of these incidents occurring at schools. Cluster 2 contained incidents that accounted for almost half of all casualties with a sizable proportion of children and women casualties alongside the highest average sadness scores with attacks taking place at hospitals. Cluster 3 contained incidents capturing almost half of all injuries and almost two thirds of all male casualties, while also having the highest average scores for fear, anger, and disgust, and these attacks occurring at places of worship and refugee camps.
+
+**Figure 7.** Exploring three clusters with casualty breakdowns, emotions, and type of attacks.
+
+```{r}
+#| echo: FALSE
+
+
+# write the cluster assignment back to the dataframe, prepare for plotting
+airwars_incidents_coord <- airwars_incidents |> 
+  filter(!is.na(incident_lat)) |> 
+  mutate(cluster = factor(cutree(hc_ward, 3))) |> 
+  mutate(
+    # clean up strike type string
+    strike_type = str_remove_all(strike_type, 
+                                 "Airstrike and/or|Airstrike,|Artillery,"),
+    strike_type = str_trim(strike_type),
+    strike_type = ifelse(strike_type == "Counter-Terrorism Action (Ground)", 
+                         "Ground operation", 
+                         ifelse(strike_type=="Naval bombardment", "Artillery",
+                                strike_type)),
+    
+    # clean up target_type
+    target_type = str_replace_all(target_type, "secondary|tertiary|college", "school"),
+    target_type = str_replace(target_type, "pharmacy", "hospital"),
+    target_type = ifelse(civilian_infrastructure=="IDP or refugee camp", 
+                         "IDP or refugee camp", target_type),
+    target_type = ifelse(target_type %in% 
+                           c("residential", "school", "hospital", "place_of_worship",
+                             "IDP or refugee camp"),
+                         target_type, "other"),
+    # make qualitative variables
+    school = ifelse(target_type == "school", 1, 0),
+    hospital = ifelse(target_type == "hospital", 1, 0),
+    place_of_worship = ifelse(target_type == "place_of_worship", 1, 0),
+    refugee_camp = ifelse(str_detect(target_type, "refugee camp"), 1, 0),
+    Airstrike = ifelse(strike_type == "Airstrike", 1, 0),
+    Artillery = ifelse(strike_type=="Artillery", 1, 0)
+  ) 
+
+
+# plot cluster with averages
+
+airwars_incidents_coord |> 
+  group_by(cluster) |> 
+  reframe(
+    Injured = sum(injured),
+    Killed = sum(killed),
+    Children = sum(children_killed)/sum(killed), 
+    Women = sum(women_killed)/sum(killed), 
+    Men = sum(men_killed)/sum(killed),
+    Sadness = mean(sadness, na.rm = TRUE), 
+    Fear = mean(fear, na.rm = TRUE), 
+    Disgust = mean(disgust, na.rm = TRUE), 
+    Anger = mean(anger, na.rm = TRUE), 
+    School = sum(school), 
+    Hospital = sum(hospital), 
+    Place_of_Worship = sum(place_of_worship),
+    Refugee_Camp = sum(refugee_camp), 
+  ) |> 
+  mutate(Injured = Injured / sum(Injured), 
+         Killed = Killed/sum(Killed),
+         School = School/sum(School), 
+         Hospital = Hospital/sum(Hospital), 
+         Place_of_Worship = Place_of_Worship/sum(Place_of_Worship),
+         Refugee_Camp = Refugee_Camp/sum(Refugee_Camp)) |> 
+  pivot_longer(-cluster) |>
+  mutate(name = str_replace_all(name, "_", " "),
+         name=factor(name, levels=c("Injured", "Killed", "Children","Women","Men",
+                                    "Sadness", "Fear","Anger",  "Disgust", 
+                                    "School", "Hospital", 
+                                    "Place of Worship", "Refugee Camp"))) |> 
+  ggplot(aes(x=cluster, y=value, fill=cluster)) +
+  geom_bar(stat="identity", width=.5, position = "stack") +
+  facet_wrap(~name, scales = "free") +
+  theme_hc() +
+  ylab("") +
+  xlab("") +
+  guides(fill=guide_legend(title="Clusters")) +
+  scale_fill_tron() +
+  dark_theme_linedraw() +
+  theme(legend.position="top",,
+        text = element_text(size = 16),
+        plot.title = element_text(hjust=1)) 
+
+```
+
+The spatial distinction of the clusters are notable in Figure 8, particularly clusters 1 and 2 incidents containing a majority of child and women casualties tend to fall in the South and Central of Gaza, while cluster 3 incidents with a majority of male casualties are in the North.
+
+**Figure 8.** Clusters appear to be distinctly distribution in Gaza.
+
+```{r}
+#| echo: FALSE
+#| fig-width: 7
+#| fig-height: 9
+#| 
+# plot the clusters on a map
+cs_key <- read_csv("~/repos/api-keys.csv") |> 
+  filter(key_id == "Google_key") |> 
+  pull(key)
+
+register_google(key = cs_key, write = TRUE)
+
+gaza_map <- get_googlemap(center = c(lon = 34.3900, lat = 31.4100),  #"Gaza Strip", 
+                          maptype = "hybrid",  #size = c(800, 1000),
+                          zoom=11) 
+
+gaza_map |> 
+  ggmap() + 
+  stat_density2d(data = airwars_incidents_coord,
+                 aes(x = incident_long, y = incident_lat,
+                     fill = cluster, alpha = ..level..),
+                 size = 1, bins = 20,
+                 geom = 'polygon') +
+  scale_alpha(range = c(.01, .40), guide = FALSE) +
+  geom_point(aes(x = incident_long, y = incident_lat , 
+                 color=cluster), size=.2,
+             data=airwars_incidents_coord) +
+  scale_color_tron(alpha=.75) + 
+  scale_fill_tron() +
+  dark_theme_linedraw() +
+  theme(legend.position="top",
+        text = element_text(size = 16))
+
+```
+
+## Discussion 
+
+We analyze casualty data from the Gaza conflict to assess disparities among civilians while considering both geographic and non-geographic factors. By leveraging open-source data from Airwars and enriching it with additional sources like reverse geocoding and text classification, we demonstrate the potential of open-source data to illuminate the civilian impact of the Gaza conflict.
+
+Our findings suggest that both the Ministry of Health (MoH) and Airwars may underestimate child casualties when considering their population proportion. Sentiment analysis reveals that incidents with higher child and female casualties are more likely to be classified as "sad," while those with higher male casualties are often categorized as "angry." This indicates that language models can provide nuanced insights into disparities across age and gender.
+
+Our clustering analysis identifies distinct casualty typologies for men, women, and children, characterized by differences in emotional tone and attack location. We observe a spatial distinction between clusters in Gaza, suggesting a geographic association with child and adult casualties. However, the correlation between child and female casualties likely stems from their proximity within the cultural context.
+
+It is important to note that our analysis cannot definitively assess the intentional targeting of civilians by the Israeli Defense Force, as this is beyond the scope of our study. Nevertheless, the significant proportion of children in the Gaza population underscores the unintended consequences of these attacks on young lives.
+
+#### *Limitations*
+
+Our dataset, sourced from Airwars, may not capture all casualties resulting from the conflict. The World Health Organization reports that deteriorating infrastructure and limited access to essential services, such as water, food, and medical care, have contributed to secondary and tertiary impacts on children's lives. Airwars primarily focuses on immediate casualties and fatalities. Discrepancies between Airwars and MoH casualty estimates may arise from various factors in data recording and reporting. Additionally, this study focuses on open-source data which might have inference biases or inaccuracies. Finally, our analysis cannot definitively determine the accuracy of either source. The optimal number of clusters for our hierarchical clustering analysis remains uncertain. Our choice of a more parsimonious model may limit our ability to detect smaller, potentially significant patterns. Moreover, we only examined incidents that had available geocoordinate information and we assume that these incidents are not different from those for which we do not observe geographic information.
