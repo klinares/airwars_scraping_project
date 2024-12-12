@@ -32,3 +32,6 @@ The structure of this repository lives in two folder; "`code`" and "`database`."
 **Given the comprehensive nature of Airwars\' data, this study aims to explore the potential of open-source information to identify patterns in the targeting of Palestinian civilians in Gaza**. We scraped and processed all available incident reports from the Airwars website, and storing in a publicly accessible SQLite database. To enrich the dataset, we reversed geocoded incident coordinates to query via the Nominatim API to return the type of location in which the attack took place (i.e., school, mosque, park, etc.). Additionally, to understand the general emotional tone in these assessments we used sentiment analysis to classify text into various emotional states. Finally, we hierarchically clustered incidents based on casualties and emotional scores to identify patterns in targeting and geographic associations with children and women casualties in Gaza. Below we report any findings containing data from this repository.
 
 #### **The slide deck for this project is found → [here](https://klinares.github.io/airwars_scraping_project/documentation/airwars_project_slides#/title-slide).**
+
+#### **The report for this project is found → [here](https://klinares.github.io/airwars_scraping_project/documentation/gaza_incidents_report.html).**
+
