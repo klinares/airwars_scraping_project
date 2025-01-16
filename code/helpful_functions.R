@@ -100,23 +100,36 @@ pull_assessment_fun <- function(web_content){
 
 
 # Use an LLM to calculate sentiment scores
-sentiment_score_fun <- function(incident_assessment){
 
+# Use an LLM to calculate sentiment scores
+sentiment_score_fun <- function(incident_assessment){
+  
   # shorten descriptions to confirm to the model limitation
   description = str_trunc(incident_assessment, 1600) 
   
   # use huggingface model to detect emotional tone of summary
   mod = 
     textClassify(description,
-                 model = "j-hartmann/emotion-english-distilroberta-base", 
+                 model_info = "j-hartmann/emotion-english-distilroberta-base", 
                  return_all_scores = TRUE, 
                  return_incorrect_results = TRUE,
                  function_to_apply = "softmax",
                  tokenizer_parallelism = TRUE,
-                 device = "gpu") |> # change to "cpu" if a gpu is not configured 
-    pivot_wider(names_from = label_x, values_from=score_x)
+                 device = "gpu") |>  # change to "cpu" if a gpu is not configured 
+    # extract and change structure
+    transpose( keep.names = "Labels") |> 
+    mutate(Labels = str_remove(Labels, "\\..*"), 
+           id = rep(seq(1, 7), each=2)) |> 
+    select(Labels, V1, id) |> 
+    pivot_wider(names_from = Labels, values_from=V1) |> 
+    select(-id) |> 
+    pivot_wider(names_from = label, values_from=score)  
+  
+  return(mod)
   
 }
+
+
 
 
 # 2nd parse pass

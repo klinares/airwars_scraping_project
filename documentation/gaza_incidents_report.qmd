@@ -58,6 +58,7 @@ airwars_incidents <- tbl(mydb, "airwars_incidents") |>
          women_killed = ifelse(is.na(women_killed), 0, women_killed),
          men_killed = max_killed - (children_killed + women_killed),
          men_killed = ifelse(is.na(men_killed), 0, men_killed)) |> 
+  mutate_at(vars(fear:joy), as.double) |> 
   rename(Incident_id = incident_id) |> 
   # add dates
   left_join(airwars_meta |> select(Incident_id, Incident_Date))
@@ -235,7 +236,7 @@ To address the emotional assessments of these incidents in our our reserach ques
 
 # sentiment analysis plot
 airwars_incidents |> 
-  select(Incident_Date, anger:surprise) |> 
+  select(Incident_Date, fear:joy) |> 
   group_by(Incident_Date) |> 
   reframe(across(where(is.double), ~ mean(.x))) |> 
   pivot_longer(-Incident_Date) |> 
@@ -380,7 +381,7 @@ airwars_incidents_coord <- airwars_incidents |>
     # clean up target_type
     target_type = str_replace_all(target_type, "secondary|tertiary|college", "school"),
     target_type = str_replace(target_type, "pharmacy", "hospital"),
-    target_type = ifelse(civilian_infrastructure=="IDP or refugee camp", 
+    target_type = ifelse(infrastructure=="IDP or refugee camp", 
                          "IDP or refugee camp", target_type),
     target_type = ifelse(target_type %in% 
                            c("residential", "school", "hospital", "place_of_worship",
@@ -437,7 +438,7 @@ airwars_incidents_coord |>
   scale_fill_tron() +
   dark_theme_linedraw() +
   theme(legend.position="top",,
-        text = element_text(size = 16),
+        text = element_text(size = 12),
         plot.title = element_text(hjust=1)) 
 
 ```

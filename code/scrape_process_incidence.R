@@ -4,7 +4,7 @@
 
 source("~/repos/airwars_scraping_project/code/helpful_functions.R")
 
-pacman::p_load(rvest, lubridate, RSQLite, DBI, text, geosphere, xml2,
+pacman::p_load(rvest, RSQLite, DBI, text, geosphere, xml2,
                glue, jsonlite, tidyverse, data.table)
 
 
